@@ -1,1 +1,5 @@
 fastapi[standard]>=0.104.1
+google-cloud-core
+google-auth
+google-cloud-storage
+google-cloud-texttospeech

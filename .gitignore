@@ -1,0 +1,4 @@
+.venv/*
+gcp-service-account.json
+host-audio/*
+*.pyc

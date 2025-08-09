@@ -7,10 +7,12 @@ COPY ./requirements.txt /code/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 COPY ./app /code/app
+COPY ./gcp-service-account.json /code/gcp-service-account.json
+
+# Create audio directory for TTS files
+RUN mkdir -p /code/audio
 
 EXPOSE 80
 
-CMD ["fastapi", "run", "app/main.py", "--port", "80"]
-
-# If running behind a proxy like Nginx or Traefik add --proxy-headers
-# CMD ["fastapi", "run", "app/main.py", "--port", "80", "--proxy-headers"]
+# Use development mode with auto-reload
+CMD ["fastapi", "dev", "app/main.py", "--host", "0.0.0.0", "--port", "80"]
