@@ -6,6 +6,7 @@ from pydantic import BaseModel
 import hashlib
 import datetime
 from google.cloud import texttospeech_v1beta1
+from gemini_config import GeminiConfig
 from gcp_config import gcp_config
 
 app = FastAPI(
@@ -40,6 +41,7 @@ class TTSRequest(BaseModel):
     voice_name: str = "en-US-Wavenet-D"
     audio_encoding: str = "MP3"
     enable_time_pointing: bool = True  # Enable word-level timing
+    is_ssml: bool = False  # Whether the input text is SSML
 
 
 @app.post("/tts/synthesize")
@@ -53,10 +55,11 @@ def synthesize_speech(request: TTSRequest):
         
         # Convert text to SSML with word marks if timing is enabled
         if request.enable_time_pointing:
-            ssml_text, word_marks = gcp_config.text_to_ssml_with_marks(request.text)
+            ssml_text, word_marks = gcp_config.prepare_ssml_with_marks(request.text, request.is_ssml)
             synthesis_input = texttospeech_v1beta1.SynthesisInput(ssml=ssml_text)
         else:
-            synthesis_input = texttospeech_v1beta1.SynthesisInput(text=request.text)
+            # For non-timing requests
+            synthesis_input = texttospeech_v1beta1.SynthesisInput(ssml=request.text)
             word_marks = []
         
         # Build the voice request
@@ -104,12 +107,12 @@ def synthesize_speech(request: TTSRequest):
             out.write(response.audio_content)
         
         # Save timing information if available
-        timing_file = None
+        timing_filename = None
         if word_timings:
             timing_filename = f"timing_{timestamp}_{text_hash}.json"
-            timing_file = os.path.join(audio_dir, timing_filename)
+            timing_file_path = os.path.join(audio_dir, timing_filename)
             import json
-            with open(timing_file, "w") as f:
+            with open(timing_file_path, "w") as f:
                 json.dump({
                     "text": request.text,
                     "word_timings": word_timings,
@@ -120,13 +123,100 @@ def synthesize_speech(request: TTSRequest):
             "status": "success",
             "message": "Audio synthesized successfully",
             "filename": filename,
-            "file_path": file_path,
             "text_length": len(request.text),
             "language": request.language_code,
             "voice": request.voice_name,
             "word_timings": word_timings,
-            "timing_file": timing_file
+            "timing_filename": timing_filename
         }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {str(e)}")
+
+
+@app.get("/tts/download/{filename}")
+def download_audio(filename: str):
+    """
+    Download an audio file by filename
+    """
+    try:
+        audio_dir = gcp_config.get_audio_directory()
+        file_path = os.path.join(audio_dir, filename)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Audio file not found")
+        
+        return FileResponse(
+            path=file_path,
+            media_type="audio/mpeg",
+            filename=filename
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+
+
+@app.get("/tts/timing/{filename}")
+def download_timing(filename: str):
+    """
+    Download a timing JSON file by filename
+    """
+    try:
+        audio_dir = gcp_config.get_audio_directory()
+        # Convert audio filename to timing filename
+        if filename.startswith("tts_"):
+            timing_filename = filename.replace("tts_", "timing_").replace(".mp3", ".json")
+        else:
+            timing_filename = filename
+            
+        file_path = os.path.join(audio_dir, timing_filename)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Timing file not found")
+        
+        return FileResponse(
+            path=file_path,
+            media_type="application/json",
+            filename=timing_filename
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+
+
+@app.get("/tts/list")
+def list_files():
+    """
+    List all available audio and timing files
+    """
+    try:
+        audio_dir = gcp_config.get_audio_directory()
+        
+        if not os.path.exists(audio_dir):
+            return {"audio_files": [], "timing_files": []}
+        
+        files = os.listdir(audio_dir)
+        audio_files = [f for f in files if f.endswith('.mp3')]
+        timing_files = [f for f in files if f.endswith('.json')]
+        
+        return {
+            "audio_files": sorted(audio_files, reverse=True),  # Most recent first
+            "timing_files": sorted(timing_files, reverse=True),
+            "total_audio": len(audio_files),
+            "total_timing": len(timing_files)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"List files failed: {str(e)}")
+    
+@app.post("/gemini/generate/")
+def generate_content(prompt: str):
+    """
+    Generate content using the Gemini model
+    """
+    try:
+        gemini_config = GeminiConfig()
+        response = gemini_config.generate_content(prompt)
+        return {"status": "success", "content": response}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Content generation failed: {str(e)}")

@@ -78,6 +78,7 @@ class GCPConfig:
         Convert text to SSML with mark tags before each word.
         Returns the SSML string and a list of word marks.
         """
+        print(f"Converting text to SSML: {text}")
         # Split text into words, preserving punctuation
         words = re.findall(r'\S+', text)
         word_marks = []
@@ -90,8 +91,72 @@ class GCPConfig:
         
         ssml_parts.append('</speak>')
         ssml = ' '.join(ssml_parts)
-        
+
+        print(f"Generated SSML: {ssml}")
         return ssml, word_marks
+    
+    def ssml_to_ssml_with_marks(self, ssml_text: str) -> tuple[str, List[str]]:
+        """
+        Add mark tags to existing SSML content before each word, preserving SSML structure.
+        Returns the modified SSML string and a list of word marks.
+        """
+        print(f"Adding marks to existing SSML: {ssml_text}")
+        
+        # Remove markdown code block markers if present
+        cleaned_text = ssml_text.strip()
+        if cleaned_text.startswith('```xml'):
+            cleaned_text = cleaned_text[6:].strip()
+        if cleaned_text.endswith('```'):
+            cleaned_text = cleaned_text[:-3].strip()
+        
+        # Remove any existing <speak> tags to get the inner content
+        inner_content = cleaned_text.strip()
+        if inner_content.startswith('<speak>'):
+            inner_content = inner_content[7:]  # Remove opening <speak>
+        if inner_content.endswith('</speak>'):
+            inner_content = inner_content[:-8]  # Remove closing </speak>
+        
+        word_marks = []
+        word_index = 0
+        
+        # Process the SSML content and insert marks before words
+        # This regex finds text content outside of SSML tags
+        def add_marks_to_text(match):
+            nonlocal word_index
+            text_segment = match.group(0).strip()
+            if not text_segment:  # Skip empty matches
+                return text_segment
+                
+            words_in_segment = re.findall(r'\S+', text_segment)
+            
+            marked_words = []
+            for word in words_in_segment:
+                mark_name = f"word_{word_index}"
+                word_marks.append(mark_name)
+                marked_words.append(f'<mark name="{mark_name}"/>{word}')
+                word_index += 1
+            
+            return ' '.join(marked_words)
+        
+        # Split content by tags and process text parts
+        # This regex matches text that is not inside angle brackets
+        marked_content = re.sub(r'(?<=>)[^<]+(?=<)|(?<=>)[^<]+$|^[^<]+(?=<)', add_marks_to_text, inner_content)
+        
+        # Wrap in speak tags
+        ssml = f'<speak>{marked_content}</speak>'
+        
+        print(f"Generated marked SSML: {ssml}")
+        return ssml, word_marks
+
+    def prepare_ssml_with_marks(self, text: str, is_ssml: bool) -> tuple[str, List[str]]:
+        """
+        Prepare SSML with marks, automatically detecting if input is plain text or SSML.
+        Returns the SSML string and a list of word marks.
+        """
+        if is_ssml:
+            return self.ssml_to_ssml_with_marks(text)
+        else:
+            return self.text_to_ssml_with_marks(text)
     
     def extract_word_timestamps(self, timing_info, word_marks: List[str], original_text: str = "") -> List[Dict]:
         """
