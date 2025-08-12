@@ -43,6 +43,8 @@ class TTSRequest(BaseModel):
     enable_time_pointing: bool = True  # Enable word-level timing
     is_ssml: bool = False  # Whether the input text is SSML
 
+class GeminiRequest(BaseModel):
+    prompt: str
 
 @app.post("/tts/synthesize")
 def synthesize_speech(request: TTSRequest):
@@ -91,7 +93,7 @@ def synthesize_speech(request: TTSRequest):
         # Extract word timestamps if available
         word_timings = []
         if request.enable_time_pointing and hasattr(response, 'timepoints'):
-            word_timings = gcp_config.extract_word_timestamps(response.timepoints, word_marks, request.text)
+            word_timings = gcp_config.extract_word_timestamps(response.timepoints, word_marks, request.text, filter_ssml_tags=request.is_ssml)
         
         # Generate a unique filename based on text hash and timestamp
         text_hash = hashlib.md5(request.text.encode()).hexdigest()[:8]
@@ -210,13 +212,13 @@ def list_files():
         raise HTTPException(status_code=500, detail=f"List files failed: {str(e)}")
     
 @app.post("/gemini/generate/")
-def generate_content(prompt: str):
+def generate_content(request: GeminiRequest):
     """
     Generate content using the Gemini model
     """
     try:
         gemini_config = GeminiConfig()
-        response = gemini_config.generate_content(prompt)
+        response = gemini_config.generate_content(request.prompt)
         return {"status": "success", "content": response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Content generation failed: {str(e)}")

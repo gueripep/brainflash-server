@@ -158,15 +158,21 @@ class GCPConfig:
         else:
             return self.text_to_ssml_with_marks(text)
     
-    def extract_word_timestamps(self, timing_info, word_marks: List[str], original_text: str = "") -> List[Dict]:
+    def extract_word_timestamps(self, timing_info, word_marks: List[str], original_text, filter_ssml_tags: bool = False) -> List[Dict]:
         """
         Extract word timestamps from TTS timing information.
         """
         word_timings = []
         
         # Extract words from original text to match with indices
-        words = re.findall(r'\S+', original_text) if original_text else []
-        
+        if filter_ssml_tags:
+            # Remove SSML tags and extract only actual words
+            text_without_tags = re.sub(r'<[^>]+>', '', original_text)
+            words = re.findall(r'\S+', text_without_tags)
+        else:
+            words = re.findall(r'\S+', original_text)
+
+        print(timing_info)
         # The timing_info is a list of timepoints directly
         if timing_info:
             # Create a dictionary mapping mark names to timestamps
@@ -182,7 +188,7 @@ class GCPConfig:
                         "word_index": i,
                         "word": words[i] if i < len(words) else f"word_{i}",
                         "start_time": mark_dict[mark_name],
-                        "duration": None  # We'd need next mark to calculate duration
+                        "can": None  # We'd need next mark to calculate duration
                     })
             
             # Calculate durations
