@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from config import create_app
 from routes.tts import router as tts_router
 from routes.gemini import router as gemini_router
+from routes.auth import router as auth_router
 from database import init_db, close_db
 
 
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI):
 app = create_app(lifespan=lifespan)
 
 # Include routers
+app.include_router(auth_router)
 app.include_router(tts_router)
 app.include_router(gemini_router)
 
@@ -40,32 +42,25 @@ def get_root() -> Dict[str, Any]:
         "version": "1.0.0",
         "docs": "/docs",
         "endpoints": {
-            "gcp_test": "/gcp/test",
-            "synthesize": "/tts/synthesize",
-            "speak": "/tts/speak/{text}",
-            "download": "/tts/download/{filename}",
-            "timing": "/tts/timing/{filename}",
-            "list_files": "/tts/list",
-            "tts_history": "/tts/history"
-        }
-    }
-
-
-@app.get("/")
-def read_root() -> Dict[str, Any]:
-    """
-    Root endpoint - returns basic information about the API
-    """
-    return {
-        "message": "Welcome to BrainFlash TTS Server",
-        "version": "1.0.0",
-        "docs": "/docs",
-        "endpoints": {
-            "gcp_test": "/gcp/test",
-            "synthesize": "/tts/synthesize",
-            "speak": "/tts/speak/{text}",
-            "download": "/tts/download/{filename}",
-            "timing": "/tts/timing/{filename}",
-            "list_files": "/tts/list"
+            "auth": {
+                "register": "/auth/register",
+                "login": "/auth/jwt/login",
+                "logout": "/auth/jwt/logout",
+                "users": "/users/me",
+                "reset_password": "/auth/forgot-password"
+            },
+            "tts": {
+                "gcp_test": "/gcp/test",
+                "synthesize": "/tts/synthesize",
+                "speak": "/tts/speak/{text}",
+                "download": "/tts/download/{filename}",
+                "timing": "/tts/timing/{filename}",
+                "list_files": "/tts/list",
+                "history": "/tts/history"
+            },
+            "gemini": {
+                "chat": "/gemini/chat",
+                "history": "/gemini/history"
+            }
         }
     }

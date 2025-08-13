@@ -14,14 +14,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from models import TTSRequest, TTSResponse
-from database import get_db, TTSRecord
+from database import get_db, TTSRecord, User
 from gcp_config import gcp_config
+from auth import current_active_user, verify_api_key
 
 router = APIRouter(prefix="/tts", tags=["Text-to-Speech"])
 
 
 @router.post("/synthesize", response_model=TTSResponse)
-async def synthesize_speech(request: TTSRequest, db: AsyncSession = Depends(get_db)) -> TTSResponse:
+async def synthesize_speech(
+    request: TTSRequest, 
+    db: AsyncSession = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+) -> TTSResponse:
     """
     Convert text to speech using Google Cloud TTS and save the audio file
     """
@@ -246,3 +251,29 @@ async def get_tts_history(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get history: {str(e)}")
+
+
+@router.get("/protected/user-stats")
+async def get_user_tts_stats(
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Get TTS usage statistics for the authenticated user.
+    This is an example of a protected endpoint that requires authentication.
+    """
+    try:
+        # For demonstration, we'll just return user info and total TTS records
+        result = await db.execute(select(TTSRecord))
+        total_records = len(result.scalars().all())
+        
+        return {
+            "user_id": str(user.id),
+            "user_email": user.email,
+            "user_name": f"{user.first_name or ''} {user.last_name or ''}".strip() or "N/A",
+            "total_tts_requests": total_records,
+            "message": "This endpoint requires authentication"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get user stats: {str(e)}")

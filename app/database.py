@@ -8,9 +8,19 @@ from sqlalchemy import String, DateTime, Text, Boolean, Integer
 from datetime import datetime
 from typing import Optional
 from dotenv import load_dotenv
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+from fastapi_users_db_sqlalchemy import SQLAlchemyBaseUserTable, SQLAlchemyUserDatabase
+import uuid
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column
+from fastapi import Depends
+
 
 # Load environment variables
 load_dotenv()
+CET = timezone(timedelta(hours=1))  # Central European Time
+now_cet = datetime.now(CET)
 
 # Database configuration
 DATABASE_URL = os.getenv(
@@ -39,6 +49,16 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(SQLAlchemyBaseUserTable[uuid.UUID], Base):
+    """User model for authentication"""
+    __tablename__ = "users"
+    
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    first_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class TTSRecord(Base):
     """Model for storing TTS requests and results"""
     __tablename__ = "tts_records"
@@ -52,7 +72,7 @@ class TTSRecord(Base):
     is_ssml: Mapped[bool] = mapped_column(Boolean, default=False)
     audio_file_path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     timing_file_path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     processing_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
@@ -63,9 +83,11 @@ class GeminiRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     processing_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     model_used: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    
+
 
 
 async def get_db():
@@ -86,3 +108,8 @@ async def init_db():
 async def close_db():
     """Close database connection"""
     await engine.dispose()
+
+
+async def get_user_db(session: AsyncSession = Depends(get_db)):
+    """Get user database adapter"""
+    yield SQLAlchemyUserDatabase(session, User)

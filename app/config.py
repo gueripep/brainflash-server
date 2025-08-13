@@ -23,9 +23,8 @@ def create_app(lifespan=None) -> FastAPI:
         # Production configuration - disable docs for security
         app = FastAPI(
             title="BrainFlash TTS Server",
-            description="A text-to-speech server using Google Cloud TTS",
+            description="A text-to-speech server using Google Cloud TTS and Gemini AI with Authentication",
             version="1.0.0",
-            dependencies=[Depends(verify_api_key)],
             docs_url=None,
             openapi_url=None,
             redoc_url=None,
@@ -35,9 +34,8 @@ def create_app(lifespan=None) -> FastAPI:
         # Development configuration - enable docs
         app = FastAPI(
             title="BrainFlash TTS Server",
-            description="A text-to-speech server using Google Cloud TTS",
+            description="A text-to-speech server using Google Cloud TTS and Gemini AI with Authentication",
             version="1.0.0",
-            dependencies=[Depends(verify_api_key)],
             lifespan=lifespan
         )
     else:
