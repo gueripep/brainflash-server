@@ -5,7 +5,7 @@ class GeminiConfig:
     def __init__(self):
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            raise ValueError("GEMINI_API_KEY is nott set")
+            raise ValueError("GEMINI_API_KEY is not set")
         self.client = genai.Client(api_key=api_key)
         
     def generate_content(self, prompt: str) -> str:
