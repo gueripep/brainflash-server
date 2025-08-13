@@ -5,7 +5,7 @@ import os
 from fastapi import FastAPI, Depends
 from dotenv import load_dotenv
 
-from auth import verify_api_key
+from app.auth import verify_api_key
 
 # Load environment variables
 load_dotenv()

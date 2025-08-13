@@ -4,8 +4,8 @@ Gemini AI route handlers
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
 
-from models import GeminiRequest
-from gemini_config import GeminiConfig
+from app.models import GeminiRequest
+from app.gemini_config import GeminiConfig
 
 router = APIRouter(prefix="/gemini", tags=["Gemini AI"])
 

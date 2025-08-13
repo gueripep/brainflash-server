@@ -6,11 +6,11 @@ from typing import Dict, Any
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
-from config import create_app
-from routes.tts import router as tts_router
-from routes.gemini import router as gemini_router
-from routes.auth import router as auth_router
-from database import init_db, close_db
+from app.config import create_app
+from app.routes.tts import router as tts_router
+from app.routes.gemini import router as gemini_router
+from app.routes.auth import router as auth_router
+from app.database import init_db, close_db
 
 
 @asynccontextmanager
