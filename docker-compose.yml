@@ -11,3 +11,35 @@ services:
       - ./gcp-service-account.json:/code/gcp-service-account.json  # Mount GCP credentials
     command: ["fastapi", "dev", "app/main.py", "--host", "0.0.0.0", "--port", "80"]
     restart: unless-stopped
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: brainflash
+      POSTGRES_USER: brainflash
+      POSTGRES_PASSWORD: brainflash_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@brainflash.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  pgadmin_data:

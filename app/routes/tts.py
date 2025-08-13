@@ -5,22 +5,28 @@ import os
 import hashlib
 import datetime
 import json
+import time
 from typing import Dict, Any
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse
 from google.cloud import texttospeech_v1beta1
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from models import TTSRequest
+from models import TTSRequest, TTSResponse
+from database import get_db, TTSRecord
 from gcp_config import gcp_config
 
 router = APIRouter(prefix="/tts", tags=["Text-to-Speech"])
 
 
-@router.post("/synthesize")
-def synthesize_speech(request: TTSRequest) -> Dict[str, Any]:
+@router.post("/synthesize", response_model=TTSResponse)
+async def synthesize_speech(request: TTSRequest, db: AsyncSession = Depends(get_db)) -> TTSResponse:
     """
     Convert text to speech using Google Cloud TTS and save the audio file
     """
+    start_time = time.time()
+    
     try:
         # Initialize the TTS client
         client = gcp_config.get_tts_client()
@@ -80,6 +86,7 @@ def synthesize_speech(request: TTSRequest) -> Dict[str, Any]:
         
         # Save timing information if available
         timing_filename = None
+        timing_file_path = None
         if word_timings:
             timing_filename = f"timing_{timestamp}_{text_hash}.json"
             timing_file_path = os.path.join(audio_dir, timing_filename)
@@ -89,17 +96,34 @@ def synthesize_speech(request: TTSRequest) -> Dict[str, Any]:
                     "word_timings": word_timings,
                     "audio_file": filename
                 }, f, indent=2)
-            
-        return {
-            "status": "success",
-            "message": "Audio synthesized successfully",
-            "filename": filename,
-            "text_length": len(request.text),
-            "language": request.language_code,
-            "voice": request.voice_name,
-            "word_timings": word_timings,
-            "timing_filename": timing_filename
-        }
+        
+        # Calculate processing time
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        
+        # Create database record
+        db_record = TTSRecord(
+            text=request.text,
+            language_code=request.language_code,
+            voice_name=request.voice_name,
+            audio_encoding=request.audio_encoding,
+            enable_time_pointing=request.enable_time_pointing,
+            is_ssml=request.is_ssml,
+            audio_file_path=file_path,
+            timing_file_path=timing_file_path,
+            processing_time_ms=processing_time_ms
+        )
+        
+        db.add(db_record)
+        await db.commit()
+        await db.refresh(db_record)
+        
+        return TTSResponse(
+            id=db_record.id,
+            audio_file_path=file_path,
+            timing_file_path=timing_file_path,
+            processing_time_ms=processing_time_ms,
+            created_at=db_record.created_at
+        )
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {str(e)}")
@@ -179,3 +203,46 @@ def list_files() -> Dict[str, Any]:
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"List files failed: {str(e)}")
+
+
+@router.get("/history")
+async def get_tts_history(
+    limit: int = 10, 
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Get TTS request history from database
+    """
+    try:
+        # Query TTS records with pagination
+        stmt = select(TTSRecord).order_by(TTSRecord.created_at.desc()).offset(offset).limit(limit)
+        result = await db.execute(stmt)
+        records = result.scalars().all()
+        
+        # Convert to response format
+        history = []
+        for record in records:
+            history.append({
+                "id": record.id,
+                "text": record.text[:100] + "..." if len(record.text) > 100 else record.text,
+                "language_code": record.language_code,
+                "voice_name": record.voice_name,
+                "audio_encoding": record.audio_encoding,
+                "enable_time_pointing": record.enable_time_pointing,
+                "is_ssml": record.is_ssml,
+                "processing_time_ms": record.processing_time_ms,
+                "created_at": record.created_at,
+                "has_audio": record.audio_file_path is not None,
+                "has_timing": record.timing_file_path is not None
+            })
+        
+        return {
+            "history": history,
+            "limit": limit,
+            "offset": offset,
+            "total": len(history)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get history: {str(e)}")

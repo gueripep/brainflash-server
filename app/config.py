@@ -15,7 +15,7 @@ if not env:
     raise RuntimeError("ENV not set!")
 
 
-def create_app() -> FastAPI:
+def create_app(lifespan=None) -> FastAPI:
     """
     Application factory function
     """
@@ -28,15 +28,19 @@ def create_app() -> FastAPI:
             dependencies=[Depends(verify_api_key)],
             docs_url=None,
             openapi_url=None,
-            redoc_url=None
+            redoc_url=None,
+            lifespan=lifespan
         )
-    else:
+    elif env == "dev":
         # Development configuration - enable docs
         app = FastAPI(
             title="BrainFlash TTS Server",
             description="A text-to-speech server using Google Cloud TTS",
             version="1.0.0",
             dependencies=[Depends(verify_api_key)],
+            lifespan=lifespan
         )
-    
+    else:
+        raise ValueError("Invalid ENV value")
+
     return app
