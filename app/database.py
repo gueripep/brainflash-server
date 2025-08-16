@@ -3,8 +3,8 @@ Database configuration and connection setup
 """
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, DateTime, Text, Boolean, Integer
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy import String, DateTime, Text, Boolean, Integer, JSON, ForeignKey, Date
 from datetime import datetime
 from typing import Optional
 from dotenv import load_dotenv
@@ -89,6 +89,125 @@ class GeminiRecord(Base):
     
 
 
+class DailyProgress(Base):
+    """Store daily progress like: {"date":"Sun Aug 17 2025","newCardsStudied":0}"""
+    __tablename__ = "daily_progress"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    date: Mapped[Date] = mapped_column(Date, nullable=False)
+    new_cards_studied: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class FlashcardDeck(Base):
+    """Store flashcard deck metadata"""
+    __tablename__ = "flashcard_decks"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
+    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    card_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
+
+
+class Flashcard(Base):
+    """Store individual flashcards; nested fields (discussion, final_card, fsrs) are stored as JSON."""
+    __tablename__ = "flashcards"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
+    created_at: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
+    deck_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("flashcard_decks.id"), nullable=True)
+    # One-to-one related objects
+    discussion: Mapped[Optional["FlashcardDiscussion"]] = relationship(
+        "FlashcardDiscussion", back_populates="flashcard", uselist=False, cascade="all, delete-orphan"
+    )
+    final_card: Mapped[Optional["FlashcardFinalCard"]] = relationship(
+        "FlashcardFinalCard", back_populates="flashcard", uselist=False, cascade="all, delete-orphan"
+    )
+    fsrs: Mapped[Optional["FlashcardFSRS"]] = relationship(
+        "FlashcardFSRS", back_populates="flashcard", uselist=False, cascade="all, delete-orphan"
+    )
+    stage: Mapped[int] = mapped_column(Integer, default=0)
+
+
+
+class FlashcardDiscussion(Base):
+    """Separate table for the 'discussion' object attached to a flashcard.
+
+    Example structure:
+    {
+      "ssmlText": "...",
+      "text": "...",
+      "audio": { "filename": "...", "timingFilename": "..." }
+    }
+    """
+    __tablename__ = "flashcard_discussions"
+
+    flashcard_id: Mapped[str] = mapped_column(String(50), ForeignKey("flashcards.id"), primary_key=True)
+    ssml_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    audio: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="discussion")
+
+
+class FlashcardFinalCard(Base):
+    """Separate table for the 'finalCard' object attached to a flashcard."""
+    __tablename__ = "flashcard_final_cards"
+
+    flashcard_id: Mapped[str] = mapped_column(String(50), ForeignKey("flashcards.id"), primary_key=True)
+    front: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    back: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    question_audio: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    answer_audio: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="final_card")
+
+
+class FlashcardFSRS(Base):
+    """Separate table for FSRS (spaced repetition) metadata attached to a flashcard."""
+    __tablename__ = "flashcard_fsrs"
+
+    flashcard_id: Mapped[str] = mapped_column(String(50), ForeignKey("flashcards.id"), primary_key=True)
+    due: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    stability: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    difficulty: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    elapsed_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    scheduled_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    reps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    lapses: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    state: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    learning_steps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
+
+    # Relationship back to Flashcard (one-to-one) to match Flashcard.fsrs back_populates
+    flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="fsrs")
+
+    # Optional relationship to AudioFile for convenience
+    audio: Mapped[Optional["AudioFile"]] = relationship("AudioFile", foreign_keys=[audio_id])
+
+
+class StudySession(Base):
+    """Store study sessions keyed by id; reviews stored as JSON list/object."""
+    __tablename__ = "study_sessions"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
+    deck_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("flashcard_decks.id"), nullable=True)
+    start_time: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
+    cards_studied: Mapped[int] = mapped_column(Integer, default=0)
+    question_audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
+    answer_audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
+
+
+    question_audio: Mapped[Optional["AudioFile"]] = relationship("AudioFile", foreign_keys=[question_audio_id])
+    answer_audio: Mapped[Optional["AudioFile"]] = relationship("AudioFile", foreign_keys=[answer_audio_id])
+
+class AudioFile(Base):
+    """Table to store audio filenames and their timing file names. Shared by multiple models."""
+    __tablename__ = "audio_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    timing_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
 async def get_db():
     """Dependency to get database session"""

@@ -17,6 +17,7 @@ from app.models import TTSRequest, TTSResponse
 from app.database import get_db, TTSRecord, User
 from app.gcp_config import gcp_config
 from app.auth import current_active_user, verify_api_key
+from google.cloud import storage
 
 router = APIRouter(prefix="/tts", tags=["Text-to-Speech"])
 
@@ -101,6 +102,38 @@ async def synthesize_speech(
                     "word_timings": word_timings,
                     "audio_file": filename
                 }, f, indent=2)
+
+        # Attempt to upload files to GCS bucket 'ttsinfo' (non-fatal)
+        try:
+            storage_client = gcp_config.get_storage_client()
+            bucket_name = "ttsinfo"
+            bucket = storage_client.bucket(bucket_name)
+
+            # Upload audio file
+            audio_blob = bucket.blob(filename)
+            audio_blob.upload_from_filename(file_path)
+            # Ensure content type is set for audio
+            try:
+                audio_blob.content_type = "audio/mpeg"
+                audio_blob.patch()
+            except Exception:
+                # patch may fail depending on auth, ignore
+                pass
+
+            # Upload timing file if present
+            if timing_file_path:
+                timing_blob = bucket.blob(timing_filename)
+                timing_blob.upload_from_filename(timing_file_path)
+                try:
+                    timing_blob.content_type = "application/json"
+                    timing_blob.patch()
+                except Exception:
+                    pass
+
+            print(f"Uploaded files to GCS bucket '{bucket_name}': {filename}{', ' + timing_filename if timing_filename else ''}")
+        except Exception as e:
+            # Log upload error but do not fail the TTS request
+            print(f"Failed to upload TTS files to GCS: {e}")
         
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
