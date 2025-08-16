@@ -17,8 +17,8 @@ class TTSRequest(BaseModel):
 
 class TTSResponse(BaseModel):
     id: int
-    audio_file_path: str
-    timing_file_path: Optional[str] = None
+    audio_file_name: str
+    timing_file_name: Optional[str] = None
     processing_time_ms: Optional[int] = None
     created_at: datetime
 

@@ -122,10 +122,11 @@ async def synthesize_speech(
         await db.commit()
         await db.refresh(db_record)
         
+        # Return only filenames — the server knows the audio directory
         return TTSResponse(
             id=db_record.id,
-            audio_file_path=file_path,
-            timing_file_path=timing_file_path,
+            audio_file_name=filename,
+            timing_file_name=timing_filename,
             processing_time_ms=processing_time_ms,
             created_at=db_record.created_at
         )
@@ -134,7 +135,7 @@ async def synthesize_speech(
         raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {str(e)}")
 
 
-@router.get("/download/{filename}")
+@router.get("/audio/{filename}")
 def download_audio(filename: str):
     """
     Download an audio file by filename
@@ -142,7 +143,8 @@ def download_audio(filename: str):
     try:
         audio_dir = gcp_config.get_audio_directory()
         file_path = os.path.join(audio_dir, filename)
-        
+        print(f"Attempting to download audio file from {file_path}")
+
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail="Audio file not found")
         
