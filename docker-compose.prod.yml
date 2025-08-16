@@ -1,0 +1,42 @@
+version: '3.8'
+services:
+  brainflash-server:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "0.0.0.0:80:80"
+    environment:
+      - ENV=production
+    # Only mount audio storage in prod; do NOT mount source code or credentials
+    volumes:
+      - ./host-audio:/code/audio:rw
+    # Run a production ASGI server (uvicorn). Adjust workers to match host CPU.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80", "--workers", "4"]
+    restart: unless-stopped
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: brainflash
+      POSTGRES_USER: brainflash
+      # Prefer reading password from the environment (.env.prod). Fallback kept for convenience.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-brainflash_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+# NOTES:
+# - This prod compose file purposefully removes mounts of the application source and GCP
+#   credentials so that builds use the image context and secrets are handled separately.
+# - Create a `.env.prod` with required env vars (POSTGRES_PASSWORD, any GCP credentials,
+#   SECRET_KEY, etc.) and avoid committing secrets to the repo.
+# - If you prefer to run behind a reverse proxy or load balancer, remove the host port
+#   binding and expose only internal ports.

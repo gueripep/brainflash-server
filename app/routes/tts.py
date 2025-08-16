@@ -25,7 +25,7 @@ router = APIRouter(prefix="/tts", tags=["Text-to-Speech"])
 async def synthesize_speech(
     request: TTSRequest, 
     db: AsyncSession = Depends(get_db),
-    api_key: str = Depends(verify_api_key)
+    user=Depends(current_active_user)
 ) -> TTSResponse:
     """
     Convert text to speech using Google Cloud TTS and save the audio file

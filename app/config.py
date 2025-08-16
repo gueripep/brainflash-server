@@ -6,6 +6,7 @@ from fastapi import FastAPI, Depends
 from dotenv import load_dotenv
 
 from app.auth import verify_api_key
+from app.middleware.rate_limiter import RateLimitMiddleware
 
 # Load environment variables
 load_dotenv()
@@ -40,5 +41,24 @@ def create_app(lifespan=None) -> FastAPI:
         )
     else:
         raise ValueError("Invalid ENV value")
+
+    # Configure rate limiting from environment variables (defaults provided)
+    try:
+        max_requests = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "60"))
+        window_seconds = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+    except ValueError:
+        max_requests = 60
+        window_seconds = 60
+
+    # Paths to exempt from rate limiting (comma-separated)
+    exempt = os.getenv("RATE_LIMIT_EXEMPT_PATHS", "/docs,/openapi.json").split(",")
+
+    # Attach the middleware
+    app.add_middleware(
+        RateLimitMiddleware,
+        max_requests=max_requests,
+        window_seconds=window_seconds,
+        exempt_paths=exempt,
+    )
 
     return app
