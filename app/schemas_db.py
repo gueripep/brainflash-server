@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime, date
+from uuid import UUID
 
 
 # Nested objects
@@ -41,9 +42,8 @@ class FlashcardCreate(FlashcardBase):
     final_card: Optional[FinalCardSchema] = None
     fsrs: Optional[FSRSSchema] = None
 
-
 class FlashcardUpdate(BaseModel):
-    deck_id: Optional[str] = None
+    deck_id: Optional[UUID] = None
     stage: Optional[int] = None
     discussion: Optional[DiscussionSchema] = None
     final_card: Optional[FinalCardSchema] = None
@@ -64,6 +64,28 @@ class FlashcardRead(FlashcardBase):
 class AudioSchema(BaseModel):
     filename: str
     timingFilename: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+# Deck schemas
+class DeckBase(BaseModel):
+    name: str
+
+
+class DeckCreate(DeckBase):
+    pass
+
+
+class DeckUpdate(BaseModel):
+    name: Optional[str] = None
+
+
+class DeckRead(DeckBase):
+    id: UUID
+    card_count: Optional[int] = 0
+    created_at: Optional[datetime] = None
 
     class Config:
         orm_mode = True

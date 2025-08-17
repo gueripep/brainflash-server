@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import String, DateTime, Text, Boolean, Integer, JSON, ForeignKey, Date
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -57,6 +57,8 @@ class User(SQLAlchemyBaseUserTable[uuid.UUID], Base):
     first_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     last_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    # One user can own many flashcard decks
+    decks: Mapped[List["FlashcardDeck"]] = relationship("FlashcardDeck", back_populates="owner", cascade="all, delete-orphan")
 
 
 class TTSRecord(Base):
@@ -102,19 +104,30 @@ class FlashcardDeck(Base):
     """Store flashcard deck metadata"""
     __tablename__ = "flashcard_decks"
 
-    id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
-    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    card_count: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(DateTime, default=datetime.now, nullable=False)
+    # Optional owner reference to users table
+    owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    owner: Mapped["User"] = relationship("User", back_populates="decks")
+    # Relationship to Flashcard: one deck -> many flashcards
+    cards: Mapped[List["Flashcard"]] = relationship(
+        "Flashcard",
+        back_populates="deck",
+        cascade="all, delete-orphan",
+    )
 
 
 class Flashcard(Base):
     """Store individual flashcards; nested fields (discussion, final_card, fsrs) are stored as JSON."""
     __tablename__ = "flashcards"
 
-    id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
-    created_at: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
-    deck_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("flashcard_decks.id"), nullable=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True)
+    created_at: Mapped[Optional[DateTime]] = mapped_column(DateTime, default=datetime.now, nullable=True)
+    # A flashcard must belong to a deck; require deck_id on creation
+    deck_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcard_decks.id"), nullable=False)
+    # Relationship back to the deck that contains this card
+    deck: Mapped["FlashcardDeck"] = relationship("FlashcardDeck", back_populates="cards")
     # One-to-one related objects
     discussion: Mapped[Optional["FlashcardDiscussion"]] = relationship(
         "FlashcardDiscussion", back_populates="flashcard", uselist=False, cascade="all, delete-orphan"
@@ -141,7 +154,7 @@ class FlashcardDiscussion(Base):
     """
     __tablename__ = "flashcard_discussions"
 
-    flashcard_id: Mapped[str] = mapped_column(String(50), ForeignKey("flashcards.id"), primary_key=True)
+    flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id"), primary_key=True)
     ssml_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     audio: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -153,7 +166,7 @@ class FlashcardFinalCard(Base):
     """Separate table for the 'finalCard' object attached to a flashcard."""
     __tablename__ = "flashcard_final_cards"
 
-    flashcard_id: Mapped[str] = mapped_column(String(50), ForeignKey("flashcards.id"), primary_key=True)
+    flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id"), primary_key=True)
     front: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     back: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     question_audio: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -166,7 +179,7 @@ class FlashcardFSRS(Base):
     """Separate table for FSRS (spaced repetition) metadata attached to a flashcard."""
     __tablename__ = "flashcard_fsrs"
 
-    flashcard_id: Mapped[str] = mapped_column(String(50), ForeignKey("flashcards.id"), primary_key=True)
+    flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id"), primary_key=True)
     due: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     stability: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     difficulty: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -177,21 +190,16 @@ class FlashcardFSRS(Base):
     state: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     learning_steps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
-
     # Relationship back to Flashcard (one-to-one) to match Flashcard.fsrs back_populates
     flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="fsrs")
-
-    # Optional relationship to AudioFile for convenience
-    audio: Mapped[Optional["AudioFile"]] = relationship("AudioFile", foreign_keys=[audio_id])
 
 
 class StudySession(Base):
     """Store study sessions keyed by id; reviews stored as JSON list/object."""
     __tablename__ = "study_sessions"
 
-    id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
-    deck_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("flashcard_decks.id"), nullable=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True)
+    deck_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcard_decks.id"), nullable=True)
     start_time: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
     cards_studied: Mapped[int] = mapped_column(Integer, default=0)
     question_audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)

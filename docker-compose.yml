@@ -8,6 +8,7 @@ services:
     volumes:
       - ./host-audio:/code/audio
       - ./app:/code/app  # Mount source code for development
+      - ./app:/code/tests  # Mount test code for development
       - ./gcp-service-account.json:/code/gcp-service-account.json  # Mount GCP credentials
     command: ["fastapi", "dev", "app/main.py", "--host", "0.0.0.0", "--port", "80"]
     restart: unless-stopped

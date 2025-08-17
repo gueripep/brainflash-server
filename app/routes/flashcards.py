@@ -49,11 +49,10 @@ async def get_flashcard(flashcard_id: str, session: AsyncSession = Depends(get_d
 
 @router.post("/", response_model=FlashcardRead, status_code=status.HTTP_201_CREATED)
 async def create_flashcard(payload: FlashcardCreate, session: AsyncSession = Depends(get_db)):
-	# If deck_id is provided, ensure deck exists
-	if payload.deck_id:
-		deck = await session.get(FlashcardDeck, payload.deck_id)
-		if not deck:
-			raise HTTPException(status_code=404, detail="Deck not found")
+	# Ensure deck exists (deck_id required in schema)
+	deck = await session.get(FlashcardDeck, payload.deck_id)
+	if not deck:
+		raise HTTPException(status_code=404, detail="Deck not found")
 
 	flashcard = Flashcard(id=payload.id, deck_id=payload.deck_id, stage=payload.stage)
 	session.add(flashcard)
@@ -94,8 +93,11 @@ async def update_flashcard(flashcard_id: str, payload: FlashcardUpdate, session:
 	item = await session.get(Flashcard, flashcard_id)
 	if not item:
 		raise HTTPException(status_code=404, detail="Flashcard not found")
-
 	if payload.deck_id is not None:
+		# validate new deck exists
+		new_deck = await session.get(FlashcardDeck, payload.deck_id)
+		if not new_deck:
+			raise HTTPException(status_code=404, detail="Deck not found")
 		item.deck_id = payload.deck_id
 	if payload.stage is not None:
 		item.stage = payload.stage
@@ -136,7 +138,6 @@ async def update_flashcard(flashcard_id: str, payload: FlashcardUpdate, session:
 			fs.lapses = payload.fsrs.lapses
 			fs.state = payload.fsrs.state
 			fs.learning_steps = payload.fsrs.learning_steps
-			fs.audio_id = payload.fsrs.audio_id
 		else:
 			session.add(FlashcardFSRS(flashcard_id=flashcard_id, due=payload.fsrs.due, stability=payload.fsrs.stability, difficulty=payload.fsrs.difficulty, elapsed_days=payload.fsrs.elapsed_days, scheduled_days=payload.fsrs.scheduled_days, reps=payload.fsrs.reps, lapses=payload.fsrs.lapses, state=payload.fsrs.state, learning_steps=payload.fsrs.learning_steps, audio_id=payload.fsrs.audio_id))
 

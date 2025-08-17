@@ -11,6 +11,7 @@ from app.routes.tts import router as tts_router
 from app.routes.gemini import router as gemini_router
 from app.routes.auth import router as auth_router
 from app.routes.flashcards import router as flashcards_router
+from app.routes.decks import router as decks_router
 from app.database import init_db, close_db
 
 
@@ -32,6 +33,7 @@ app.include_router(auth_router)
 app.include_router(tts_router)
 app.include_router(gemini_router)
 app.include_router(flashcards_router)
+app.include_router(decks_router)
 
 
 @app.get("/")

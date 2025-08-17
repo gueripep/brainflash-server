@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 from app.auth import verify_api_key
 from app.middleware.rate_limiter import RateLimitMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
 # Load environment variables
 load_dotenv()
@@ -54,11 +55,27 @@ def create_app(lifespan=None) -> FastAPI:
     exempt = os.getenv("RATE_LIMIT_EXEMPT_PATHS", "/docs,/openapi.json").split(",")
 
     # Attach the middleware
+    # Configure CORS: allow origins from environment or default to localhost:8081
+    cors_env = os.getenv("CORS_ALLOWED_ORIGINS")
+    if cors_env:
+        allowed_origins = [o.strip() for o in cors_env.split(",") if o.strip()]
+    else:
+        # Default allowed origin for local frontend development
+        allowed_origins = ["http://localhost:8081"]
+
     app.add_middleware(
-        RateLimitMiddleware,
-        max_requests=max_requests,
-        window_seconds=window_seconds,
-        exempt_paths=exempt,
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
+
+    # app.add_middleware(
+    #     RateLimitMiddleware,
+    #     max_requests=max_requests,
+    #     window_seconds=window_seconds,
+    #     exempt_paths=exempt,
+    # )
 
     return app
