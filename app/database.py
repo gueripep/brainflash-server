@@ -217,6 +217,19 @@ class AudioFile(Base):
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     timing_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
+
+class RefreshToken(Base):
+    """Store refresh tokens per user (store only a hash of the token)."""
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 async def get_db():
     """Dependency to get database session"""
     async with AsyncSessionLocal() as session:

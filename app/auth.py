@@ -14,8 +14,14 @@ from fastapi_users.authentication import (
 )
 from fastapi_users.db import SQLAlchemyUserDatabase
 
-from app.database import User, get_user_db, get_db
+from app.database import User, get_user_db, get_db, AsyncSessionLocal
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+import hashlib
+import secrets
+from sqlalchemy import select
+from app.database import RefreshToken
+from fastapi import Response
 
 load_dotenv()
 
@@ -23,9 +29,14 @@ load_dotenv()
 SECRET = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
 API_KEY = os.getenv("API_KEY")
 
+# Access token lifetime (short)
+ACCESS_TOKEN_LIFETIME = int(os.getenv("ACCESS_TOKEN_LIFETIME_SECONDS", 900))  # default 15 minutes
+# Refresh token lifetime (long)
+REFRESH_TOKEN_LIFETIME_DAYS = int(os.getenv("REFRESH_TOKEN_LIFETIME_DAYS", 30))
+
 
 def get_jwt_strategy() -> JWTStrategy:
-    return JWTStrategy(secret=SECRET, lifetime_seconds=3600)
+    return JWTStrategy(secret=SECRET, lifetime_seconds=ACCESS_TOKEN_LIFETIME)
 
 
 class UserManager(BaseUserManager[User, uuid.UUID]):
@@ -35,6 +46,31 @@ class UserManager(BaseUserManager[User, uuid.UUID]):
 
     async def on_after_register(self, user: User, request: Optional[Request] = None):
         print(f"User {user.id} has registered.")
+
+    async def on_after_login(self, user: User, request: Optional[Request] = None, response: Optional[Response] = None):
+        """Called after successful login via fastapi-users; create a refresh token and set cookie."""
+        # Create a refresh token, store its hash in DB tied to user
+        raw = secrets.token_urlsafe(64)
+        token_hash = hashlib.sha256(raw.encode()).hexdigest()
+        now = datetime.now()
+        expires_at = now + timedelta(days=REFRESH_TOKEN_LIFETIME_DAYS)
+
+        # store in DB using session maker
+        async with AsyncSessionLocal() as session:
+            rt = RefreshToken(user_id=user.id, token_hash=token_hash, issued_at=now, expires_at=expires_at, revoked=False)
+            session.add(rt)
+            await session.commit()
+
+        # If response provided, set secure HTTPOnly cookie (works when called from auth router)
+        if response is not None:
+            response.set_cookie(
+                key="refresh_token",
+                value=raw,
+                httponly=True,
+                secure=True,
+                samesite="lax",
+                max_age=REFRESH_TOKEN_LIFETIME_DAYS * 24 * 3600,
+            )
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Optional[Request] = None

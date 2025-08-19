@@ -52,7 +52,7 @@ async def update_deck(deck_id: str, payload: DeckUpdate, session: AsyncSession =
 
 
 @router.delete("/{deck_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_deck(deck_id: str, session: AsyncSession = Depends(get_db)):
+async def delete_deck(deck_id: str, session: AsyncSession = Depends(get_db), current_user: User = Depends(current_active_user),):
     deck = await session.get(FlashcardDeck, deck_id)
     if not deck:
         raise HTTPException(status_code=404, detail="Deck not found")
