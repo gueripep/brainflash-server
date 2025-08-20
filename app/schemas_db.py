@@ -8,14 +8,14 @@ from uuid import UUID
 class DiscussionSchema(BaseModel):
     ssml_text: Optional[str] = None
     text: Optional[str] = None
-    audio: Optional["AudioSchema"] = None
+    audio: "AudioSchema"
 
 
 class FinalCardSchema(BaseModel):
-    front: Optional[str] = None
-    back: Optional[str] = None
-    question_audio: Optional["AudioSchema"] = None
-    answer_audio: Optional["AudioSchema"] = None
+    front: str
+    back: str
+    question_audio: "AudioSchema"
+    answer_audio: "AudioSchema"
 
 
 class FSRSSchema(BaseModel):
@@ -32,15 +32,14 @@ class FSRSSchema(BaseModel):
 
 
 class FlashcardBase(BaseModel):
-    id: str
-    deck_id: Optional[str] = None
-    stage: Optional[int] = 0
+    deck_id: Optional[UUID] = None
+    stage: int
 
 
 class FlashcardCreate(FlashcardBase):
-    discussion: Optional[DiscussionSchema] = None
-    final_card: Optional[FinalCardSchema] = None
-    fsrs: Optional[FSRSSchema] = None
+    discussion: DiscussionSchema
+    final_card: FinalCardSchema
+    fsrs: FSRSSchema
 
 class FlashcardUpdate(BaseModel):
     deck_id: Optional[UUID] = None
@@ -57,16 +56,16 @@ class FlashcardRead(FlashcardBase):
     fsrs: Optional[FSRSSchema] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 
 class AudioSchema(BaseModel):
     filename: str
-    timingFilename: Optional[str] = None
+    timing_filename: Optional[str] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # Deck schemas
@@ -88,4 +87,4 @@ class DeckRead(DeckBase):
     created_at: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True

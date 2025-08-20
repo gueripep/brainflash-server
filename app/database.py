@@ -31,7 +31,6 @@ DATABASE_URL = os.getenv(
 # Create async engine
 engine = create_async_engine(
     DATABASE_URL,
-    echo=os.getenv("ENV") == "dev",  # Enable SQL logging in development
     pool_pre_ping=True,
     pool_recycle=3600,
 )
@@ -122,20 +121,20 @@ class Flashcard(Base):
     """Store individual flashcards; nested fields (discussion, final_card, fsrs) are stored as JSON."""
     __tablename__ = "flashcards"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4)
     created_at: Mapped[Optional[DateTime]] = mapped_column(DateTime, default=datetime.now, nullable=True)
     # A flashcard must belong to a deck; require deck_id on creation
     deck_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcard_decks.id"), nullable=False)
     # Relationship back to the deck that contains this card
     deck: Mapped["FlashcardDeck"] = relationship("FlashcardDeck", back_populates="cards")
     # One-to-one related objects
-    discussion: Mapped[Optional["FlashcardDiscussion"]] = relationship(
+    discussion: Mapped["FlashcardDiscussion"] = relationship(
         "FlashcardDiscussion", back_populates="flashcard", uselist=False, cascade="all, delete-orphan"
     )
-    final_card: Mapped[Optional["FlashcardFinalCard"]] = relationship(
+    final_card: Mapped["FlashcardFinalCard"] = relationship(
         "FlashcardFinalCard", back_populates="flashcard", uselist=False, cascade="all, delete-orphan"
     )
-    fsrs: Mapped[Optional["FlashcardFSRS"]] = relationship(
+    fsrs: Mapped["FlashcardFSRS"] = relationship(
         "FlashcardFSRS", back_populates="flashcard", uselist=False, cascade="all, delete-orphan"
     )
     stage: Mapped[int] = mapped_column(Integer, default=0)
@@ -154,10 +153,12 @@ class FlashcardDiscussion(Base):
     """
     __tablename__ = "flashcard_discussions"
 
-    flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id"), primary_key=True)
+    flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id", ondelete="CASCADE"), primary_key=True)
     ssml_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    audio: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Link to shared audio file instead of storing JSON with filename/timing
+    audio_id: Mapped[int] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
+    audio: Mapped["AudioFile"] = relationship("AudioFile", foreign_keys=[audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
 
     flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="discussion")
 
@@ -166,11 +167,15 @@ class FlashcardFinalCard(Base):
     """Separate table for the 'finalCard' object attached to a flashcard."""
     __tablename__ = "flashcard_final_cards"
 
-    flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id"), primary_key=True)
+    flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id", ondelete="CASCADE"), primary_key=True)
     front: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     back: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    question_audio: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    answer_audio: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Replace JSON audio blobs with FKs to shared AudioFile table
+    question_audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
+    answer_audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
+
+    question_audio: Mapped[Optional["AudioFile"]] = relationship("AudioFile", foreign_keys=[question_audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
+    answer_audio: Mapped[Optional["AudioFile"]] = relationship("AudioFile", foreign_keys=[answer_audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
 
     flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="final_card")
 
@@ -179,7 +184,7 @@ class FlashcardFSRS(Base):
     """Separate table for FSRS (spaced repetition) metadata attached to a flashcard."""
     __tablename__ = "flashcard_fsrs"
 
-    flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id"), primary_key=True)
+    flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id", ondelete="CASCADE"), primary_key=True)
     due: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     stability: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     difficulty: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -215,7 +220,7 @@ class AudioFile(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    timing_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    timing_filename: Mapped[str] = mapped_column(String(255), nullable=True)
 
 
 class RefreshToken(Base):

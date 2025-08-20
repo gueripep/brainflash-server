@@ -10,6 +10,7 @@ from app.database import (
 	FlashcardFinalCard,
 	FlashcardFSRS,
 	FlashcardDeck,
+	AudioFile,
 	get_db,
 )
 from app.schemas_db import (
@@ -24,8 +25,9 @@ router = APIRouter(prefix="/flashcards", tags=["flashcards"])
 @router.get("/", response_model=List[FlashcardRead])
 async def list_flashcards(skip: int = 0, limit: int = 100, session: AsyncSession = Depends(get_db)):
 	q = select(Flashcard).options(
-		joinedload(Flashcard.discussion),
-		joinedload(Flashcard.final_card),
+		joinedload(Flashcard.discussion).joinedload(FlashcardDiscussion.audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.question_audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.answer_audio),
 		joinedload(Flashcard.fsrs),
 	).offset(skip).limit(limit)
 	res = await session.execute(q)
@@ -54,24 +56,47 @@ async def create_flashcard(payload: FlashcardCreate, session: AsyncSession = Dep
 	if not deck:
 		raise HTTPException(status_code=404, detail="Deck not found")
 
-	flashcard = Flashcard(id=payload.id, deck_id=payload.deck_id, stage=payload.stage)
+	flashcard = Flashcard(deck_id=payload.deck_id, stage=payload.stage)
 	session.add(flashcard)
 	await session.flush()
 
 	# nested discussion
 	if payload.discussion:
-		audio = payload.discussion.audio.dict() if payload.discussion.audio is not None else None
-		disc = FlashcardDiscussion(flashcard_id=flashcard.id, ssml_text=payload.discussion.ssml_text, text=payload.discussion.text, audio=audio)
+		a = AudioFile(filename=payload.discussion.audio.filename, timing_filename=payload.discussion.audio.timing_filename)
+		session.add(a)
+		await session.flush()
+		audio_id = a.id
+
+		disc = FlashcardDiscussion(
+			flashcard_id=flashcard.id,
+			ssml_text=payload.discussion.ssml_text,
+			text=payload.discussion.text,
+			audio_id=audio_id,
+		)
 		session.add(disc)
 
 	if payload.final_card:
-		q_audio = payload.final_card.question_audio.dict() if payload.final_card.question_audio is not None else None
-		a_audio = payload.final_card.answer_audio.dict() if payload.final_card.answer_audio is not None else None
-		fc = FlashcardFinalCard(flashcard_id=flashcard.id, front=payload.final_card.front, back=payload.final_card.back, question_audio=q_audio, answer_audio=a_audio)
+
+		qa = AudioFile(filename=payload.final_card.question_audio.filename, timing_filename=payload.final_card.question_audio.timing_filename)
+		session.add(qa)
+		await session.flush()
+		q_audio_id = qa.id
+
+		aa = AudioFile(filename=payload.final_card.answer_audio.filename, timing_filename=payload.final_card.answer_audio.timing_filename)
+		session.add(aa)
+		await session.flush()
+		a_audio_id = aa.id
+		fc = FlashcardFinalCard(
+			flashcard_id=flashcard.id,
+			front=payload.final_card.front,
+			back=payload.final_card.back,
+			question_audio_id=q_audio_id,
+			answer_audio_id=a_audio_id,
+		)
 		session.add(fc)
 
 	if payload.fsrs:
-		fs = FlashcardFSRS(flashcard_id=flashcard.id, due=payload.fsrs.due, stability=payload.fsrs.stability, difficulty=payload.fsrs.difficulty, elapsed_days=payload.fsrs.elapsed_days, scheduled_days=payload.fsrs.scheduled_days, reps=payload.fsrs.reps, lapses=payload.fsrs.lapses, state=payload.fsrs.state, learning_steps=payload.fsrs.learning_steps, audio_id=payload.fsrs.audio_id)
+		fs = FlashcardFSRS(flashcard_id=flashcard.id, due=payload.fsrs.due.replace(tzinfo=None), stability=payload.fsrs.stability, difficulty=payload.fsrs.difficulty, elapsed_days=payload.fsrs.elapsed_days, scheduled_days=payload.fsrs.scheduled_days, reps=payload.fsrs.reps, lapses=payload.fsrs.lapses, state=payload.fsrs.state, learning_steps=payload.fsrs.learning_steps)
 		session.add(fs)
 
 	await session.commit()
@@ -79,8 +104,9 @@ async def create_flashcard(payload: FlashcardCreate, session: AsyncSession = Dep
 
 	# reload with relationships
 	q = select(Flashcard).where(Flashcard.id == flashcard.id).options(
-		joinedload(Flashcard.discussion),
-		joinedload(Flashcard.final_card),
+		joinedload(Flashcard.discussion).joinedload(FlashcardDiscussion.audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.question_audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.answer_audio),
 		joinedload(Flashcard.fsrs),
 	)
 	res = await session.execute(q)
@@ -129,7 +155,7 @@ async def update_flashcard(flashcard_id: str, payload: FlashcardUpdate, session:
 	if payload.fsrs is not None:
 		fs = await session.get(FlashcardFSRS, flashcard_id)
 		if fs:
-			fs.due = payload.fsrs.due
+			fs.due = payload.fsrs.due.replace(tzinfo=None)
 			fs.stability = payload.fsrs.stability
 			fs.difficulty = payload.fsrs.difficulty
 			fs.elapsed_days = payload.fsrs.elapsed_days
