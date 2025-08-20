@@ -95,32 +95,23 @@ async def refresh(
     strategy=Depends(auth_backend.get_strategy),
 ):
     if not refresh_token:
-        print("refresh called without cookie refresh_token")
         raise HTTPException(status_code=401, detail="Missing refresh token")
 
-    print("refresh attempt: refresh_token_mask=%s", _mask_token(refresh_token))
 
     async with AsyncSessionLocal() as session:
         th = hashlib.sha256(refresh_token.encode()).hexdigest()
         q = await session.execute(select(RefreshToken).where(RefreshToken.token_hash == th, RefreshToken.revoked == False))
         rt = q.scalar_one_or_none()
         if not rt:
-            print("refresh token not found in DB: token_hash=%s", hashlib.sha256(refresh_token.encode()).hexdigest()[:8])
             raise HTTPException(status_code=401, detail="Invalid refresh token")
         if rt.expires_at < datetime.now():
-            print("refresh token expired: id=%s user_id=%s expires_at=%s", getattr(rt, "id", None), getattr(rt, "user_id", None), getattr(rt, "expires_at", None))
             raise HTTPException(status_code=401, detail="Expired refresh token")
-
-        print("found refresh token: id=%s user_id=%s revoked=%s expires_at=%s", rt.id, rt.user_id, rt.revoked, rt.expires_at)
 
         # Get user and ask backend to create the canonical access token
         from app.database import User
         user = await session.get(User, rt.user_id)
         if not user:
-            print("user referenced by refresh token not found: user_id=%s", rt.user_id)
             raise HTTPException(status_code=401, detail="User not found")
-
-        print("refresh token belongs to user: user_id=%s email=%s", user.id, getattr(user, "email", None))
 
         resp = await auth_backend.login(strategy, user)
         import json
@@ -129,7 +120,6 @@ async def refresh(
         except Exception:
             body_text = None
 
-        print("backend.login response status=%s body_preview=%s", getattr(resp, "status_code", None), (body_text[:200] if body_text else None))
 
         try:
             body = json.loads(body_text) if body_text else {}
@@ -151,10 +141,7 @@ async def refresh(
         session.add(new_rt)
         await session.commit()
 
-        print("rotated refresh token: old_id=%s new_hash_prefix=%s new_expires_at=%s", rt.id, new_hash[:8], expires_at)
-
     # Return new refresh token in response body (no cookie)
-    print("returning refreshed access token for user_id=%s access_token_mask=%s new_refresh_token_mask=%s", rt.user_id, _mask_token(access_token), _mask_token(new_raw))
     return {"access_token": access_token, "token_type": "bearer", "refresh_token": new_raw}
 
 
