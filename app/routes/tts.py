@@ -7,7 +7,7 @@ import datetime
 import json
 import time
 from typing import Dict, Any
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import FileResponse
 from google.cloud import texttospeech_v1beta1
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/tts", tags=["Text-to-Speech"])
 
 @router.post("/synthesize", response_model=TTSResponse)
 async def synthesize_speech(
-    request: TTSRequest, 
+    request: TTSRequest,
     db: AsyncSession = Depends(get_db),
     user=Depends(current_active_user)
 ) -> TTSResponse:
@@ -104,6 +104,8 @@ async def synthesize_speech(
                 }, f, indent=2)
 
         # Attempt to upload files to GCS bucket 'ttsinfo' (non-fatal)
+        audio_gcs_url = None
+        timing_gcs_url = None
         try:
             storage_client = gcp_config.get_storage_client()
             bucket_name = "ttsinfo"
@@ -119,6 +121,19 @@ async def synthesize_speech(
             except Exception:
                 # patch may fail depending on auth, ignore
                 pass
+            # Generate a signed URL (V4) for temporary access. Fall back to public_url
+            try:
+                # 1 hour expiry for signed URLs
+                audio_gcs_url = audio_blob.generate_signed_url(
+                    expiration=datetime.timedelta(hours=1),
+                    version="v4",
+                    method="GET",
+                )
+            except Exception:
+                try:
+                    audio_gcs_url = audio_blob.public_url
+                except Exception:
+                    audio_gcs_url = f"https://storage.googleapis.com/{bucket_name}/{filename}"
 
             # Upload timing file if present
             if timing_file_path:
@@ -129,6 +144,18 @@ async def synthesize_speech(
                     timing_blob.patch()
                 except Exception:
                     pass
+                # Generate a signed URL (V4) for the timing file as well
+                try:
+                    timing_gcs_url = timing_blob.generate_signed_url(
+                        expiration=datetime.timedelta(hours=1),
+                        version="v4",
+                        method="GET",
+                    )
+                except Exception:
+                    try:
+                        timing_gcs_url = timing_blob.public_url
+                    except Exception:
+                        timing_gcs_url = f"https://storage.googleapis.com/{bucket_name}/{timing_filename}"
 
             print(f"Uploaded files to GCS bucket '{bucket_name}': {filename}{', ' + timing_filename if timing_filename else ''}")
         except Exception as e:
@@ -155,11 +182,14 @@ async def synthesize_speech(
         await db.commit()
         await db.refresh(db_record)
         
-        # Return only filenames — the server knows the audio directory
+
+        # Return filenames and URLs
         return TTSResponse(
             id=db_record.id,
             audio_file_name=filename,
+            audio_file_url=audio_gcs_url,
             timing_file_name=timing_filename,
+            timing_file_url=timing_gcs_url,
             processing_time_ms=processing_time_ms,
             created_at=db_record.created_at
         )

@@ -6,8 +6,8 @@ from uuid import UUID
 
 # Nested objects
 class DiscussionSchema(BaseModel):
-    ssml_text: Optional[str] = None
-    text: Optional[str] = None
+    ssml_text: str
+    text: str
     audio: "AudioSchema"
 
 
@@ -50,10 +50,11 @@ class FlashcardUpdate(BaseModel):
 
 
 class FlashcardRead(FlashcardBase):
-    created_at: Optional[datetime] = None
-    discussion: Optional[DiscussionSchema] = None
-    final_card: Optional[FinalCardSchema] = None
-    fsrs: Optional[FSRSSchema] = None
+    id: UUID
+    created_at: datetime = None
+    discussion: DiscussionSchema
+    final_card: FinalCardSchema
+    fsrs: FSRSSchema
 
     class Config:
         from_attributes = True
@@ -62,7 +63,7 @@ class FlashcardRead(FlashcardBase):
 
 class AudioSchema(BaseModel):
     filename: str
-    timing_filename: Optional[str] = None
+    timing_filename: str
 
     class Config:
         from_attributes = True
