@@ -6,7 +6,7 @@ import hashlib
 import datetime
 import json
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import FileResponse
 from google.cloud import texttospeech_v1beta1
@@ -20,6 +20,53 @@ from app.auth import current_active_user, verify_api_key
 from google.cloud import storage
 
 router = APIRouter(prefix="/tts", tags=["Text-to-Speech"])
+
+
+def _generate_signed_url_for_blob(storage_client, bucket_name: str, blob_name: str, expiration_hours: int = 1) -> Optional[str]:
+    """
+    Try to generate a V4 signed URL for the given blob. Fall back to public_url then to the canonical GCS URL.
+    Returns None only if the bucket or client operations failed entirely.
+    """
+    try:
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        try:
+            return blob.generate_signed_url(
+                expiration=datetime.timedelta(hours=expiration_hours),
+                version="v4",
+                method="GET",
+            )
+        except Exception:
+            try:
+                return blob.public_url
+            except Exception:
+                return f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
+    except Exception:
+        return None
+
+
+
+@router.get("/signed-url")
+def get_signed_url(filename: str, bucket: str = "ttsinfo", expiration_hours: int = 1):
+    """
+    Return a fresh signed URL for a given blob in the configured bucket.
+    Useful when a previously issued signed URL has expired.
+    Example: /tts/signed-url?filename=tts_20250819_...&bucket=ttsinfo&expiration_hours=1
+    """
+    try:
+        if not filename:
+            raise HTTPException(status_code=400, detail="filename is required")
+
+        storage_client = gcp_config.get_storage_client()
+        url = _generate_signed_url_for_blob(storage_client, bucket, filename, expiration_hours=expiration_hours)
+        if not url:
+            raise HTTPException(status_code=500, detail="Failed to generate signed URL")
+
+        return {"filename": filename, "signed_url": url, "bucket": bucket, "expiration_hours": expiration_hours}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate signed URL: {e}")
 
 
 @router.post("/synthesize", response_model=TTSResponse)
@@ -121,22 +168,12 @@ async def synthesize_speech(
             except Exception:
                 # patch may fail depending on auth, ignore
                 pass
-            # Generate a signed URL (V4) for temporary access. Fall back to public_url
-            try:
-                # 1 hour expiry for signed URLs
-                audio_gcs_url = audio_blob.generate_signed_url(
-                    expiration=datetime.timedelta(hours=1),
-                    version="v4",
-                    method="GET",
-                )
-            except Exception:
-                try:
-                    audio_gcs_url = audio_blob.public_url
-                except Exception:
-                    audio_gcs_url = f"https://storage.googleapis.com/{bucket_name}/{filename}"
+
+            # Generate a signed URL (V4) for temporary access. Use helper
+            audio_gcs_url = _generate_signed_url_for_blob(storage_client, bucket_name, filename, expiration_hours=1)
 
             # Upload timing file if present
-            if timing_file_path:
+            if timing_file_path and timing_filename:
                 timing_blob = bucket.blob(timing_filename)
                 timing_blob.upload_from_filename(timing_file_path)
                 try:
@@ -145,17 +182,7 @@ async def synthesize_speech(
                 except Exception:
                     pass
                 # Generate a signed URL (V4) for the timing file as well
-                try:
-                    timing_gcs_url = timing_blob.generate_signed_url(
-                        expiration=datetime.timedelta(hours=1),
-                        version="v4",
-                        method="GET",
-                    )
-                except Exception:
-                    try:
-                        timing_gcs_url = timing_blob.public_url
-                    except Exception:
-                        timing_gcs_url = f"https://storage.googleapis.com/{bucket_name}/{timing_filename}"
+                timing_gcs_url = _generate_signed_url_for_blob(storage_client, bucket_name, timing_filename, expiration_hours=1)
 
             print(f"Uploaded files to GCS bucket '{bucket_name}': {filename}{', ' + timing_filename if timing_filename else ''}")
         except Exception as e:

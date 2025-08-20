@@ -9,6 +9,8 @@ class DiscussionSchema(BaseModel):
     ssml_text: str
     text: str
     audio: "AudioSchema"
+    class Config:
+        from_attributes = True
 
 
 class FinalCardSchema(BaseModel):
@@ -16,10 +18,12 @@ class FinalCardSchema(BaseModel):
     back: str
     question_audio: "AudioSchema"
     answer_audio: "AudioSchema"
+    class Config:
+        from_attributes = True
 
 
 class FSRSSchema(BaseModel):
-    due: Optional[datetime] = None
+    due: datetime
     stability: Optional[int] = None
     difficulty: Optional[int] = None
     elapsed_days: Optional[int] = None
@@ -29,6 +33,9 @@ class FSRSSchema(BaseModel):
     state: Optional[int] = None
     learning_steps: Optional[int] = None
     audio_id: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
 
 
 class FlashcardBase(BaseModel):
@@ -51,7 +58,7 @@ class FlashcardUpdate(BaseModel):
 
 class FlashcardRead(FlashcardBase):
     id: UUID
-    created_at: datetime = None
+    created_at: datetime
     discussion: DiscussionSchema
     final_card: FinalCardSchema
     fsrs: FSRSSchema
@@ -60,13 +67,17 @@ class FlashcardRead(FlashcardBase):
         from_attributes = True
 
 
-
+class TimedAudioFileSchema(BaseModel):
+    audio_file: str
+    timing_file: str
+    
 class AudioSchema(BaseModel):
     filename: str
     timing_filename: str
-
+    signed_url_files: Optional[TimedAudioFileSchema] = None
     class Config:
         from_attributes = True
+
 
 
 # Deck schemas

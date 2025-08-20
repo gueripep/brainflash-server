@@ -1,4 +1,5 @@
 from typing import List, Optional
+import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
@@ -17,9 +18,30 @@ from app.schemas_db import (
 	FlashcardCreate,
 	FlashcardRead,
 	FlashcardUpdate,
+	TimedAudioFileSchema
 )
+from app.gcp_config import gcp_config
+
 
 router = APIRouter(prefix="/flashcards", tags=["flashcards"])
+
+
+def _generate_signed_url_for_blob(storage_client, bucket_name: str, blob_name: str, expiration_hours: int = 1) -> str:
+	"""
+	Try to generate a V4 signed URL for the given blob. Fall back to public_url then to the canonical GCS URL.
+	Returns None only if the bucket or client operations failed entirely.
+	"""
+	bucket = storage_client.bucket(bucket_name)
+	blob = bucket.blob(blob_name)
+	try:
+		return blob.generate_signed_url(
+			expiration=datetime.timedelta(hours=expiration_hours),
+			version="v4",
+			method="GET",
+		)
+	except Exception:
+		return f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
+
 
 
 @router.get("/", response_model=List[FlashcardRead])
@@ -32,21 +54,178 @@ async def list_flashcards(skip: int = 0, limit: int = 100, session: AsyncSession
 	).offset(skip).limit(limit)
 	res = await session.execute(q)
 	items = res.scalars().all()
-	return items
+	
+	# Generate signed URLs for audio files
+	storage_client = gcp_config.get_storage_client()
+	bucket_name = "ttsinfo"
+	
+	# Convert to dict format and populate signed URLs
+	flashcards_with_urls = []
+	for item in items:
+		print(f"Processing flashcard {item.__dict__}")
+		dto = FlashcardRead.model_validate(item)
+		dto.final_card.question_audio.signed_url_files = TimedAudioFileSchema(
+			audio_file=_generate_signed_url_for_blob(
+				storage_client, bucket_name, item.final_card.question_audio.filename, expiration_hours=1
+			),
+			timing_file=_generate_signed_url_for_blob(
+				storage_client, bucket_name, item.final_card.question_audio.timing_filename, expiration_hours=1
+			)
+		)
+		dto.final_card.answer_audio.signed_url_files = TimedAudioFileSchema(
+			audio_file=_generate_signed_url_for_blob(
+				storage_client, bucket_name, item.final_card.answer_audio.filename, expiration_hours=1
+			),
+			timing_file=_generate_signed_url_for_blob(
+				storage_client, bucket_name, item.final_card.answer_audio.timing_filename, expiration_hours=1
+			)
+		)
+		dto.discussion.audio.signed_url_files = TimedAudioFileSchema(
+			audio_file=_generate_signed_url_for_blob(
+				storage_client, bucket_name, item.discussion.audio.filename, expiration_hours=1
+			),
+			timing_file=_generate_signed_url_for_blob(
+				storage_client, bucket_name, item.discussion.audio.timing_filename, expiration_hours=1
+			)
+		)
+		flashcards_with_urls.append(dto)
+
+	return flashcards_with_urls
 
 
-@router.get("/{flashcard_id}", response_model=FlashcardRead)
-async def get_flashcard(flashcard_id: str, session: AsyncSession = Depends(get_db)):
+# @router.get("/{flashcard_id}", response_model=FlashcardRead)
+# async def get_flashcard(flashcard_id: str, session: AsyncSession = Depends(get_db)):
+# 	q = select(Flashcard).where(Flashcard.id == flashcard_id).options(
+# 		joinedload(Flashcard.discussion).joinedload(FlashcardDiscussion.audio),
+# 		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.question_audio),
+# 		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.answer_audio),
+# 		joinedload(Flashcard.fsrs),
+# 	)
+# 	res = await session.execute(q)
+# 	item = res.scalars().first()
+# 	if not item:
+# 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Flashcard not found")
+	
+# 	# Generate signed URLs for audio files
+# 	try:
+# 		storage_client = gcp_config.get_storage_client()
+# 		bucket_name = "ttsinfo"
+		
+# 		# Convert to dict format and populate signed URLs
+# 		flashcard_dict = {
+# 			"id": item.id,
+# 			"deck_id": item.deck_id,
+# 			"stage": item.stage,
+# 			"created_at": item.created_at,
+# 			"discussion": None,
+# 			"final_card": None,
+# 			"fsrs": None
+# 		}
+		
+# 		# Handle discussion with audio
+# 		if item.discussion:
+# 			flashcard_dict["discussion"] = {
+# 				"ssml_text": item.discussion.ssml_text,
+# 				"text": item.discussion.text,
+# 				"audio": _populate_audio_signed_urls(item.discussion.audio, storage_client, bucket_name)
+# 			}
+		
+# 		# Handle final_card with question and answer audio
+# 		if item.final_card:
+# 			flashcard_dict["final_card"] = {
+# 				"front": item.final_card.front,
+# 				"back": item.final_card.back,
+# 				"question_audio": _populate_audio_signed_urls(item.final_card.question_audio, storage_client, bucket_name),
+# 				"answer_audio": _populate_audio_signed_urls(item.final_card.answer_audio, storage_client, bucket_name)
+# 			}
+		
+# 		# Handle FSRS data
+# 		if item.fsrs:
+# 			flashcard_dict["fsrs"] = {
+# 				"due": item.fsrs.due,
+# 				"stability": item.fsrs.stability,
+# 				"difficulty": item.fsrs.difficulty,
+# 				"elapsed_days": item.fsrs.elapsed_days,
+# 				"scheduled_days": item.fsrs.scheduled_days,
+# 				"reps": item.fsrs.reps,
+# 				"lapses": item.fsrs.lapses,
+# 				"state": item.fsrs.state,
+# 				"learning_steps": item.fsrs.learning_steps,
+# 				"audio_id": None  # This field exists in schema but not in database model
+# 			}
+		
+# 		return flashcard_dict
+# 	except Exception as e:
+# 		# If GCP operations fail, fall back to original item without signed URLs
+# 		print(f"Failed to generate signed URLs: {e}")
+# 		return item
+
+
+@router.get("/signed-urls/{flashcard_id}")
+async def get_flashcard_signed_urls(flashcard_id: str, bucket: str = "ttsinfo", expiration_hours: int = 1, session: AsyncSession = Depends(get_db)):
+	"""
+	Return fresh signed URLs for all audio files associated with a flashcard.
+	Useful when previously issued signed URLs have expired.
+	"""
 	q = select(Flashcard).where(Flashcard.id == flashcard_id).options(
-		joinedload(Flashcard.discussion),
-		joinedload(Flashcard.final_card),
-		joinedload(Flashcard.fsrs),
+		joinedload(Flashcard.discussion).joinedload(FlashcardDiscussion.audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.question_audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.answer_audio),
 	)
 	res = await session.execute(q)
 	item = res.scalars().first()
 	if not item:
 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Flashcard not found")
-	return item
+	
+	try:
+		storage_client = gcp_config.get_storage_client()
+		
+		signed_urls = {
+			"flashcard_id": flashcard_id,
+			"bucket": bucket,
+			"expiration_hours": expiration_hours,
+			"urls": {}
+		}
+		
+		# Discussion audio
+		if item.discussion and item.discussion.audio:
+			audio = item.discussion.audio
+			discussion_urls = {}
+			if audio.filename:
+				discussion_urls["audio_url"] = _generate_signed_url_for_blob(storage_client, bucket, audio.filename, expiration_hours)
+			if audio.timing_filename:
+				discussion_urls["timing_url"] = _generate_signed_url_for_blob(storage_client, bucket, audio.timing_filename, expiration_hours)
+			signed_urls["urls"]["discussion"] = discussion_urls
+		
+		# Final card audio
+		if item.final_card:
+			final_card_urls = {}
+			
+			if item.final_card.question_audio:
+				question_audio = item.final_card.question_audio
+				question_urls = {}
+				if question_audio.filename:
+					question_urls["audio_url"] = _generate_signed_url_for_blob(storage_client, bucket, question_audio.filename, expiration_hours)
+				if question_audio.timing_filename:
+					question_urls["timing_url"] = _generate_signed_url_for_blob(storage_client, bucket, question_audio.timing_filename, expiration_hours)
+				final_card_urls["question"] = question_urls
+			
+			if item.final_card.answer_audio:
+				answer_audio = item.final_card.answer_audio
+				answer_urls = {}
+				if answer_audio.filename:
+					answer_urls["audio_url"] = _generate_signed_url_for_blob(storage_client, bucket, answer_audio.filename, expiration_hours)
+				if answer_audio.timing_filename:
+					answer_urls["timing_url"] = _generate_signed_url_for_blob(storage_client, bucket, answer_audio.timing_filename, expiration_hours)
+				final_card_urls["answer"] = answer_urls
+			
+			if final_card_urls:
+				signed_urls["urls"]["final_card"] = final_card_urls
+		
+		return signed_urls
+	
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to generate signed URLs: {e}")
 
 
 @router.post("/", response_model=FlashcardRead, status_code=status.HTTP_201_CREATED)
@@ -112,72 +291,6 @@ async def create_flashcard(payload: FlashcardCreate, session: AsyncSession = Dep
 	res = await session.execute(q)
 	created = res.scalars().first()
 	return created
-
-
-@router.put("/{flashcard_id}", response_model=FlashcardRead)
-async def update_flashcard(flashcard_id: str, payload: FlashcardUpdate, session: AsyncSession = Depends(get_db)):
-	item = await session.get(Flashcard, flashcard_id)
-	if not item:
-		raise HTTPException(status_code=404, detail="Flashcard not found")
-	if payload.deck_id is not None:
-		# validate new deck exists
-		new_deck = await session.get(FlashcardDeck, payload.deck_id)
-		if not new_deck:
-			raise HTTPException(status_code=404, detail="Deck not found")
-		item.deck_id = payload.deck_id
-	if payload.stage is not None:
-		item.stage = payload.stage
-
-	# handle nested updates for discussion/final_card/fsrs (upsert semantics)
-	if payload.discussion is not None:
-		disc = await session.get(FlashcardDiscussion, flashcard_id)
-		if disc:
-			disc.ssml_text = payload.discussion.ssml_text
-			disc.text = payload.discussion.text
-			# convert AudioSchema -> dict for JSON column
-			disc.audio = payload.discussion.audio.dict() if payload.discussion.audio is not None else None
-		else:
-			audio = payload.discussion.audio.dict() if payload.discussion.audio is not None else None
-			session.add(FlashcardDiscussion(flashcard_id=flashcard_id, ssml_text=payload.discussion.ssml_text, text=payload.discussion.text, audio=audio))
-
-	if payload.final_card is not None:
-		fc = await session.get(FlashcardFinalCard, flashcard_id)
-		if fc:
-			fc.front = payload.final_card.front
-			fc.back = payload.final_card.back
-			fc.question_audio = payload.final_card.question_audio.dict() if payload.final_card.question_audio is not None else None
-			fc.answer_audio = payload.final_card.answer_audio.dict() if payload.final_card.answer_audio is not None else None
-		else:
-			q_audio = payload.final_card.question_audio.dict() if payload.final_card.question_audio is not None else None
-			a_audio = payload.final_card.answer_audio.dict() if payload.final_card.answer_audio is not None else None
-			session.add(FlashcardFinalCard(flashcard_id=flashcard_id, front=payload.final_card.front, back=payload.final_card.back, question_audio=q_audio, answer_audio=a_audio))
-
-	if payload.fsrs is not None:
-		fs = await session.get(FlashcardFSRS, flashcard_id)
-		if fs:
-			fs.due = payload.fsrs.due.replace(tzinfo=None)
-			fs.stability = payload.fsrs.stability
-			fs.difficulty = payload.fsrs.difficulty
-			fs.elapsed_days = payload.fsrs.elapsed_days
-			fs.scheduled_days = payload.fsrs.scheduled_days
-			fs.reps = payload.fsrs.reps
-			fs.lapses = payload.fsrs.lapses
-			fs.state = payload.fsrs.state
-			fs.learning_steps = payload.fsrs.learning_steps
-		else:
-			session.add(FlashcardFSRS(flashcard_id=flashcard_id, due=payload.fsrs.due, stability=payload.fsrs.stability, difficulty=payload.fsrs.difficulty, elapsed_days=payload.fsrs.elapsed_days, scheduled_days=payload.fsrs.scheduled_days, reps=payload.fsrs.reps, lapses=payload.fsrs.lapses, state=payload.fsrs.state, learning_steps=payload.fsrs.learning_steps, audio_id=payload.fsrs.audio_id))
-
-	await session.commit()
-
-	# return refreshed with relationships
-	q = select(Flashcard).where(Flashcard.id == flashcard_id).options(
-		joinedload(Flashcard.discussion),
-		joinedload(Flashcard.final_card),
-		joinedload(Flashcard.fsrs),
-	)
-	res = await session.execute(q)
-	updated = res.scalars().first()
-	return updated
 
 
 @router.delete("/{flashcard_id}", status_code=status.HTTP_204_NO_CONTENT)

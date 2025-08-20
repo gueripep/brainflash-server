@@ -154,8 +154,8 @@ class FlashcardDiscussion(Base):
     __tablename__ = "flashcard_discussions"
 
     flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id", ondelete="CASCADE"), primary_key=True)
-    ssml_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ssml_text: Mapped[str] = mapped_column(Text, nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=True)
     # Link to shared audio file instead of storing JSON with filename/timing
     audio_id: Mapped[int] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
     audio: Mapped["AudioFile"] = relationship("AudioFile", foreign_keys=[audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
@@ -171,11 +171,11 @@ class FlashcardFinalCard(Base):
     front: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     back: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # Replace JSON audio blobs with FKs to shared AudioFile table
-    question_audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
-    answer_audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
+    question_audio_id: Mapped[int] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
+    answer_audio_id: Mapped[int] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
 
-    question_audio: Mapped[Optional["AudioFile"]] = relationship("AudioFile", foreign_keys=[question_audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
-    answer_audio: Mapped[Optional["AudioFile"]] = relationship("AudioFile", foreign_keys=[answer_audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
+    question_audio: Mapped["AudioFile"] = relationship("AudioFile", foreign_keys=[question_audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
+    answer_audio: Mapped["AudioFile"] = relationship("AudioFile", foreign_keys=[answer_audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
 
     flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="final_card")
 
