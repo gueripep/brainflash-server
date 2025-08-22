@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.routes.flashcards.flashcards_fsrs import create_flashcard_fsrs_orm_from_dto
 
 from app.database import (
 	Flashcard,
@@ -16,8 +15,11 @@ from app.database import (
 	get_db,
 )
 from app.pydantic.flashcard import (
-	FlashcardCreate,
-	FlashcardRead,
+	FlashcardCreateSchema,
+	FlashcardReadSchema,
+	FlashcardUpdateSchema,
+	create_flashcard_orm_from_dto,
+	update_flashcard_orm_from_dto,
 )
 from app.pydantic.audio import AudioFileReadSchema
 from app.gcp_config import gcp_config
@@ -41,7 +43,7 @@ def _generate_signed_url_for_blob(storage_client, bucket_name: str, blob_name: s
 
 
 
-@router.get("/", response_model=List[FlashcardRead])
+@router.get("/", response_model=List[FlashcardReadSchema])
 async def list_flashcards(skip: int = 0, limit: int = 100, session: AsyncSession = Depends(get_db)):
 	q = select(Flashcard).options(
 		joinedload(Flashcard.discussion).joinedload(FlashcardDiscussion.audio),
@@ -60,7 +62,7 @@ async def list_flashcards(skip: int = 0, limit: int = 100, session: AsyncSession
 	flashcards_with_urls = []
 	for item in items:
 		print(f"Processing flashcard {item.__dict__}")
-		dto = FlashcardRead.model_validate(item)
+		dto = FlashcardReadSchema.model_validate(item)
 		dto.final_card.question_audio.signed_url_files = AudioFileReadSchema(
 			audio_file=_generate_signed_url_for_blob(
 				storage_client, bucket_name, item.final_card.question_audio.filename, expiration_hours=1
@@ -156,24 +158,32 @@ async def get_flashcard_signed_urls(flashcard_id: str, bucket: str = "ttsinfo", 
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=f"Failed to generate signed URLs: {e}")
 
-@router.put("/{flashcard_id}", response_model=FlashcardRead)
-async def update_flashcard(flashcard_id: str, payload: FlashcardRead, session: AsyncSession = Depends(get_db)):
+@router.put("/{flashcard_id}", response_model=FlashcardReadSchema)
+async def update_flashcard(flashcard_id: str, payload: FlashcardUpdateSchema, session: AsyncSession = Depends(get_db)):
 	# Ensure flashcard exists
-	flashcard = await session.get(Flashcard, flashcard_id)
+	q = select(Flashcard).where(Flashcard.id == flashcard_id).options(
+		joinedload(Flashcard.fsrs),  # Eagerly load fsrs relationship
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.question_audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.answer_audio),
+		joinedload(Flashcard.discussion).joinedload(FlashcardDiscussion.audio),
+	)
+	res = await session.execute(q)
+	flashcard = res.scalars().first()
 	if not flashcard:
 		raise HTTPException(status_code=404, detail="Flashcard not found")
 
+
 	# Update fields
-	for field, value in payload.dict(exclude_unset=True).items():
-		setattr(flashcard, field, value)
+	flashcard = update_flashcard_orm_from_dto(flashcard, payload)
+	session.add(flashcard)
 
 	await session.commit()
 	await session.refresh(flashcard)
 	return flashcard
 
 
-@router.post("/", response_model=FlashcardRead, status_code=status.HTTP_201_CREATED)
-async def create_flashcard(payload: FlashcardCreate, session: AsyncSession = Depends(get_db)):
+@router.post("/", response_model=FlashcardReadSchema, status_code=status.HTTP_201_CREATED)
+async def create_flashcard(payload: FlashcardCreateSchema, session: AsyncSession = Depends(get_db)):
 	# Ensure deck exists (deck_id required in schema)
 	deck = await session.get(FlashcardDeck, payload.deck_id)
 	if not deck:
@@ -246,11 +256,4 @@ async def delete_flashcard(flashcard_id: str, session: AsyncSession = Depends(ge
 	await session.commit()
 	return None
 
-def create_flashcard_orm_from_dto(dto: FlashcardCreate) -> Flashcard:
-	return Flashcard(
-		deck_id=dto.deck_id,
-		stage=dto.stage,
-		discussion=create_flashcard_discussion_orm_from_dto(dto.discussion),
-		final_card=create_flashcard_final_card_orm_from_dto(dto.final_card),
-		fsrs=create_flashcard_fsrs_orm_from_dto(dto.fsrs),
-	)
+

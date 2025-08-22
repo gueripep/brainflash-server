@@ -21,12 +21,23 @@ class AudioFileReadSchema(BaseModel):
         from_attributes = True
         
 class AudioFileUpdateSchema(BaseModel):
+    filename: Optional[str] = None
+    timing_filename: Optional[str] = None
+
+class AudioFileCreateSchema(BaseModel):
     filename: str
     timing_filename: str
 
 # mapper
-def create_audio_file_orm_from_dto(dto: AudioFileUpdateSchema) -> "AudioFile":
-    return AudioFileInsertSchema(
-        audio_file=dto.filename,
-        timing_file=dto.timing_filename,
+def create_audio_file_orm_from_dto(dto: AudioFileCreateSchema) -> "AudioFile":
+    return AudioFile(
+        filename=dto.filename,
+        timing_filename=dto.timing_filename,
     )
+    
+def update_audio_file_orm_from_dto(orm: AudioFile, dto: AudioFileUpdateSchema) -> AudioFile:
+    if dto.filename is not None:
+        orm.filename = dto.filename
+    if dto.timing_filename is not None:
+        orm.timing_filename = dto.timing_filename
+    return orm
