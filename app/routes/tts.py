@@ -13,7 +13,7 @@ from google.cloud import texttospeech_v1beta1
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models import TTSRequest, TTSResponse
+from app.pydantic.tts import TTSRequest, TTSResponse
 from app.database import get_db, TTSRecord, User
 from app.gcp_config import gcp_config
 from app.auth import current_active_user, verify_api_key

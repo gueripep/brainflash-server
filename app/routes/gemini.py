@@ -4,7 +4,7 @@ Gemini AI route handlers
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Depends
 
-from app.models import GeminiRequest
+from app.pydantic.llm import GeminiRequest
 from app.gemini_config import GeminiConfig
 from app.auth import current_active_user
 

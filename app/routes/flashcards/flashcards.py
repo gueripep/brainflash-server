@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.routes.flashcards.flashcards_fsrs import create_flashcard_fsrs_orm_from_dto
 
 from app.database import (
 	Flashcard,
@@ -14,11 +15,11 @@ from app.database import (
 	AudioFile,
 	get_db,
 )
-from app.schemas_db import (
+from app.pydantic.flashcard import (
 	FlashcardCreate,
 	FlashcardRead,
-	TimedAudioFileSchema
 )
+from app.pydantic.audio import AudioFileReadSchema
 from app.gcp_config import gcp_config
 
 
@@ -60,7 +61,7 @@ async def list_flashcards(skip: int = 0, limit: int = 100, session: AsyncSession
 	for item in items:
 		print(f"Processing flashcard {item.__dict__}")
 		dto = FlashcardRead.model_validate(item)
-		dto.final_card.question_audio.signed_url_files = TimedAudioFileSchema(
+		dto.final_card.question_audio.signed_url_files = AudioFileReadSchema(
 			audio_file=_generate_signed_url_for_blob(
 				storage_client, bucket_name, item.final_card.question_audio.filename, expiration_hours=1
 			),
@@ -68,7 +69,7 @@ async def list_flashcards(skip: int = 0, limit: int = 100, session: AsyncSession
 				storage_client, bucket_name, item.final_card.question_audio.timing_filename, expiration_hours=1
 			)
 		)
-		dto.final_card.answer_audio.signed_url_files = TimedAudioFileSchema(
+		dto.final_card.answer_audio.signed_url_files = AudioFileReadSchema(
 			audio_file=_generate_signed_url_for_blob(
 				storage_client, bucket_name, item.final_card.answer_audio.filename, expiration_hours=1
 			),
@@ -76,7 +77,7 @@ async def list_flashcards(skip: int = 0, limit: int = 100, session: AsyncSession
 				storage_client, bucket_name, item.final_card.answer_audio.timing_filename, expiration_hours=1
 			)
 		)
-		dto.discussion.audio.signed_url_files = TimedAudioFileSchema(
+		dto.discussion.audio.signed_url_files = AudioFileReadSchema(
 			audio_file=_generate_signed_url_for_blob(
 				storage_client, bucket_name, item.discussion.audio.filename, expiration_hours=1
 			),
@@ -87,74 +88,6 @@ async def list_flashcards(skip: int = 0, limit: int = 100, session: AsyncSession
 		flashcards_with_urls.append(dto)
 
 	return flashcards_with_urls
-
-
-# @router.get("/{flashcard_id}", response_model=FlashcardRead)
-# async def get_flashcard(flashcard_id: str, session: AsyncSession = Depends(get_db)):
-# 	q = select(Flashcard).where(Flashcard.id == flashcard_id).options(
-# 		joinedload(Flashcard.discussion).joinedload(FlashcardDiscussion.audio),
-# 		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.question_audio),
-# 		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.answer_audio),
-# 		joinedload(Flashcard.fsrs),
-# 	)
-# 	res = await session.execute(q)
-# 	item = res.scalars().first()
-# 	if not item:
-# 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Flashcard not found")
-	
-# 	# Generate signed URLs for audio files
-# 	try:
-# 		storage_client = gcp_config.get_storage_client()
-# 		bucket_name = "ttsinfo"
-		
-# 		# Convert to dict format and populate signed URLs
-# 		flashcard_dict = {
-# 			"id": item.id,
-# 			"deck_id": item.deck_id,
-# 			"stage": item.stage,
-# 			"created_at": item.created_at,
-# 			"discussion": None,
-# 			"final_card": None,
-# 			"fsrs": None
-# 		}
-		
-# 		# Handle discussion with audio
-# 		if item.discussion:
-# 			flashcard_dict["discussion"] = {
-# 				"ssml_text": item.discussion.ssml_text,
-# 				"text": item.discussion.text,
-# 				"audio": _populate_audio_signed_urls(item.discussion.audio, storage_client, bucket_name)
-# 			}
-		
-# 		# Handle final_card with question and answer audio
-# 		if item.final_card:
-# 			flashcard_dict["final_card"] = {
-# 				"front": item.final_card.front,
-# 				"back": item.final_card.back,
-# 				"question_audio": _populate_audio_signed_urls(item.final_card.question_audio, storage_client, bucket_name),
-# 				"answer_audio": _populate_audio_signed_urls(item.final_card.answer_audio, storage_client, bucket_name)
-# 			}
-		
-# 		# Handle FSRS data
-# 		if item.fsrs:
-# 			flashcard_dict["fsrs"] = {
-# 				"due": item.fsrs.due,
-# 				"stability": item.fsrs.stability,
-# 				"difficulty": item.fsrs.difficulty,
-# 				"elapsed_days": item.fsrs.elapsed_days,
-# 				"scheduled_days": item.fsrs.scheduled_days,
-# 				"reps": item.fsrs.reps,
-# 				"lapses": item.fsrs.lapses,
-# 				"state": item.fsrs.state,
-# 				"learning_steps": item.fsrs.learning_steps,
-# 				"audio_id": None  # This field exists in schema but not in database model
-# 			}
-		
-# 		return flashcard_dict
-# 	except Exception as e:
-# 		# If GCP operations fail, fall back to original item without signed URLs
-# 		print(f"Failed to generate signed URLs: {e}")
-# 		return item
 
 
 @router.get("/signed-urls/{flashcard_id}")
@@ -222,6 +155,21 @@ async def get_flashcard_signed_urls(flashcard_id: str, bucket: str = "ttsinfo", 
 	
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=f"Failed to generate signed URLs: {e}")
+
+@router.put("/{flashcard_id}", response_model=FlashcardRead)
+async def update_flashcard(flashcard_id: str, payload: FlashcardRead, session: AsyncSession = Depends(get_db)):
+	# Ensure flashcard exists
+	flashcard = await session.get(Flashcard, flashcard_id)
+	if not flashcard:
+		raise HTTPException(status_code=404, detail="Flashcard not found")
+
+	# Update fields
+	for field, value in payload.dict(exclude_unset=True).items():
+		setattr(flashcard, field, value)
+
+	await session.commit()
+	await session.refresh(flashcard)
+	return flashcard
 
 
 @router.post("/", response_model=FlashcardRead, status_code=status.HTTP_201_CREATED)
@@ -297,3 +245,12 @@ async def delete_flashcard(flashcard_id: str, session: AsyncSession = Depends(ge
 	await session.delete(item)
 	await session.commit()
 	return None
+
+def create_flashcard_orm_from_dto(dto: FlashcardCreate) -> Flashcard:
+	return Flashcard(
+		deck_id=dto.deck_id,
+		stage=dto.stage,
+		discussion=create_flashcard_discussion_orm_from_dto(dto.discussion),
+		final_card=create_flashcard_final_card_orm_from_dto(dto.final_card),
+		fsrs=create_flashcard_fsrs_orm_from_dto(dto.fsrs),
+	)

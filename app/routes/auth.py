@@ -22,7 +22,7 @@ def _mask_token(token: str | None, keep: int = 8) -> str | None:
 logger = logging.getLogger(__name__)
 
 from app.auth import auth_backend, fastapi_users, get_user_manager, SECRET, ACCESS_TOKEN_LIFETIME, REFRESH_TOKEN_LIFETIME_DAYS
-from app.schemas import UserRead, UserCreate, UserUpdate
+from app.pydantic.user import UserRead, UserCreate, UserUpdate
 from app.database import RefreshToken, AsyncSessionLocal
 
 router = APIRouter()

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import FlashcardDeck, get_db, User
 from app.auth import current_active_user
-from app.schemas_db import DeckCreate, DeckRead, DeckUpdate
+from app.pydantic.deck import DeckCreate, DeckRead, DeckUpdate
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
