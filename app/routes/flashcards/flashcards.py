@@ -18,10 +18,9 @@ from app.pydantic.flashcard import (
 	FlashcardCreateSchema,
 	FlashcardReadSchema,
 	FlashcardUpdateSchema,
-	create_flashcard_orm_from_dto,
 	update_flashcard_orm_from_dto,
 )
-from app.pydantic.audio import AudioFileReadSchema
+from app.pydantic.audio import AudioFileReadSchema, TimedAudioFile
 from app.gcp_config import gcp_config
 
 
@@ -61,36 +60,39 @@ async def list_flashcards(skip: int = 0, limit: int = 100, session: AsyncSession
 	# Convert to dict format and populate signed URLs
 	flashcards_with_urls = []
 	for item in items:
-		print(f"Processing flashcard {item.__dict__}")
 		dto = FlashcardReadSchema.model_validate(item)
-		dto.final_card.question_audio.signed_url_files = AudioFileReadSchema(
-			audio_file=_generate_signed_url_for_blob(
-				storage_client, bucket_name, item.final_card.question_audio.filename, expiration_hours=1
-			),
-			timing_file=_generate_signed_url_for_blob(
-				storage_client, bucket_name, item.final_card.question_audio.timing_filename, expiration_hours=1
-			)
-		)
-		dto.final_card.answer_audio.signed_url_files = AudioFileReadSchema(
-			audio_file=_generate_signed_url_for_blob(
-				storage_client, bucket_name, item.final_card.answer_audio.filename, expiration_hours=1
-			),
-			timing_file=_generate_signed_url_for_blob(
-				storage_client, bucket_name, item.final_card.answer_audio.timing_filename, expiration_hours=1
-			)
-		)
-		dto.discussion.audio.signed_url_files = AudioFileReadSchema(
-			audio_file=_generate_signed_url_for_blob(
-				storage_client, bucket_name, item.discussion.audio.filename, expiration_hours=1
-			),
-			timing_file=_generate_signed_url_for_blob(
-				storage_client, bucket_name, item.discussion.audio.timing_filename, expiration_hours=1
-			)
-		)
-		flashcards_with_urls.append(dto)
+		flashcards_with_urls.append(add_signed_urls_to_dto(dto, storage_client, bucket_name))
 
 	return flashcards_with_urls
 
+
+
+def add_signed_urls_to_dto(dto: FlashcardReadSchema, storage_client, bucket_name: str) -> FlashcardReadSchema:
+	dto.final_card.question_audio.signed_url_files = TimedAudioFile(
+		audio_file=_generate_signed_url_for_blob(
+			storage_client, bucket_name, dto.final_card.question_audio.filename, expiration_hours=1
+		),
+		timing_file=_generate_signed_url_for_blob(
+			storage_client, bucket_name, dto.final_card.question_audio.timing_filename, expiration_hours=1
+		)
+	)
+	dto.final_card.answer_audio.signed_url_files = TimedAudioFile(
+		audio_file=_generate_signed_url_for_blob(
+			storage_client, bucket_name, dto.final_card.answer_audio.filename, expiration_hours=1
+		),
+		timing_file=_generate_signed_url_for_blob(
+			storage_client, bucket_name, dto.final_card.answer_audio.timing_filename, expiration_hours=1
+		)
+	)
+	dto.discussion.audio.signed_url_files = TimedAudioFile(
+		audio_file=_generate_signed_url_for_blob(
+			storage_client, bucket_name, dto.discussion.audio.filename, expiration_hours=1
+		),
+		timing_file=_generate_signed_url_for_blob(
+			storage_client, bucket_name, dto.discussion.audio.timing_filename, expiration_hours=1
+		)
+	)
+	return dto
 
 @router.get("/signed-urls/{flashcard_id}")
 async def get_flashcard_signed_urls(flashcard_id: str, bucket: str = "ttsinfo", expiration_hours: int = 1, session: AsyncSession = Depends(get_db)):
