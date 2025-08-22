@@ -4,7 +4,7 @@ Database configuration and connection setup
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import String, DateTime, Text, Boolean, Integer, JSON, ForeignKey, Date
+from sqlalchemy import Float, String, DateTime, Text, Boolean, Integer, JSON, ForeignKey, Date
 from datetime import datetime
 from typing import Optional, List
 from dotenv import load_dotenv
@@ -186,8 +186,8 @@ class FlashcardFSRS(Base):
 
     flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id", ondelete="CASCADE"), primary_key=True)
     due: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    stability: Mapped[int] = mapped_column(Integer, nullable=True)
-    difficulty: Mapped[int] = mapped_column(Integer, nullable=True)
+    stability: Mapped[float] = mapped_column(Float, nullable=True)
+    difficulty: Mapped[float] = mapped_column(Float, nullable=True)
     elapsed_days: Mapped[int] = mapped_column(Integer, nullable=True)
     scheduled_days: Mapped[int] = mapped_column(Integer, nullable=True)
     reps: Mapped[int] = mapped_column(Integer, nullable=True)

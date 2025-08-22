@@ -34,8 +34,8 @@ class FlashcardFinalCardUpdateSchema(BaseModel):
 
 class FlashcardFSRSCreateSchema(BaseModel):
     due: datetime
-    stability: int
-    difficulty: int
+    stability: float
+    difficulty: float
     elapsed_days: int
     scheduled_days: int
     reps: int
@@ -45,8 +45,8 @@ class FlashcardFSRSCreateSchema(BaseModel):
     
 class FlashcardFSRSUpdateSchema(BaseModel):
     due: Optional[datetime] = None
-    stability: Optional[int] = None
-    difficulty: Optional[int] = None
+    stability: Optional[float] = None
+    difficulty: Optional[float] = None
     elapsed_days: Optional[int] = None
     scheduled_days: Optional[int] = None
     reps: Optional[int] = None
@@ -58,8 +58,8 @@ class FlashcardFSRSUpdateSchema(BaseModel):
 class FlashcardFSRSReadSchema(BaseModel):
     flashcard_id: UUID
     due: datetime
-    stability: int
-    difficulty: int
+    stability: float
+    difficulty: float
     elapsed_days: int
     scheduled_days: int
     reps: int
