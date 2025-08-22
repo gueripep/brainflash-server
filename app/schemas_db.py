@@ -23,16 +23,16 @@ class FinalCardSchema(BaseModel):
 
 
 class FSRSSchema(BaseModel):
+    flashcard_id: UUID
     due: datetime
-    stability: Optional[int] = None
-    difficulty: Optional[int] = None
-    elapsed_days: Optional[int] = None
-    scheduled_days: Optional[int] = None
-    reps: Optional[int] = None
-    lapses: Optional[int] = None
-    state: Optional[int] = None
-    learning_steps: Optional[int] = None
-    audio_id: Optional[int] = None
+    stability: int
+    difficulty: int
+    elapsed_days: int
+    scheduled_days: int
+    reps: int
+    lapses: int
+    state: int
+    learning_steps: int
     
     class Config:
         from_attributes = True

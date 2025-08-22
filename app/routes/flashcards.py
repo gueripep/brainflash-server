@@ -17,7 +17,6 @@ from app.database import (
 from app.schemas_db import (
 	FlashcardCreate,
 	FlashcardRead,
-	FlashcardUpdate,
 	TimedAudioFileSchema
 )
 from app.gcp_config import gcp_config
@@ -33,14 +32,11 @@ def _generate_signed_url_for_blob(storage_client, bucket_name: str, blob_name: s
 	"""
 	bucket = storage_client.bucket(bucket_name)
 	blob = bucket.blob(blob_name)
-	try:
-		return blob.generate_signed_url(
-			expiration=datetime.timedelta(hours=expiration_hours),
-			version="v4",
-			method="GET",
-		)
-	except Exception:
-		return f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
+	return blob.generate_signed_url(
+		expiration=datetime.timedelta(hours=expiration_hours),
+		version="v4",
+		method="GET",
+	)
 
 
 

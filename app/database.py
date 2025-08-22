@@ -185,15 +185,15 @@ class FlashcardFSRS(Base):
     __tablename__ = "flashcard_fsrs"
 
     flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id", ondelete="CASCADE"), primary_key=True)
-    due: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    stability: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    difficulty: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    elapsed_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    scheduled_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    reps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    lapses: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    state: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    learning_steps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    due: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    stability: Mapped[int] = mapped_column(Integer, nullable=True)
+    difficulty: Mapped[int] = mapped_column(Integer, nullable=True)
+    elapsed_days: Mapped[int] = mapped_column(Integer, nullable=True)
+    scheduled_days: Mapped[int] = mapped_column(Integer, nullable=True)
+    reps: Mapped[int] = mapped_column(Integer, nullable=True)
+    lapses: Mapped[int] = mapped_column(Integer, nullable=True)
+    state: Mapped[int] = mapped_column(Integer, nullable=True)
+    learning_steps: Mapped[int] = mapped_column(Integer, nullable=True)
 
     # Relationship back to Flashcard (one-to-one) to match Flashcard.fsrs back_populates
     flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="fsrs")
