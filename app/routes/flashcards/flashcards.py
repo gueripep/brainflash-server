@@ -1,3 +1,4 @@
+import gc
 from typing import List, Optional
 import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -6,12 +7,14 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import (
+	DiscussionAudio,
+	FinalCardAnswerAudio,
+	FinalCardQuestionAudio,
 	Flashcard,
 	FlashcardDiscussion,
 	FlashcardFinalCard,
 	FlashcardFSRS,
 	FlashcardDeck,
-	AudioFile,
 	get_db,
 )
 from app.pydantic.flashcard import (
@@ -65,6 +68,29 @@ async def list_flashcards(skip: int = 0, limit: int = 100, session: AsyncSession
 
 	return flashcards_with_urls
 
+
+@router.get("/deck/{deck_id}", response_model=List[FlashcardReadSchema])
+async def list_deck_flashcards(deck_id: str, skip: int = 0, limit: int = 100, session: AsyncSession = Depends(get_db)):
+	q = select(Flashcard).where(Flashcard.deck_id == deck_id).options(
+		joinedload(Flashcard.discussion).joinedload(FlashcardDiscussion.audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.question_audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.answer_audio),
+		joinedload(Flashcard.fsrs),
+	).offset(skip).limit(limit)
+	res = await session.execute(q)
+	items = res.scalars().all()
+	
+	# Generate signed URLs for audio files
+	storage_client = gcp_config.get_storage_client()
+	bucket_name = "ttsinfo"
+	
+	# Convert to dict format and populate signed URLs
+	flashcards_with_urls = []
+	for item in items:
+		dto = FlashcardReadSchema.model_validate(item)
+		flashcards_with_urls.append(add_signed_urls_to_dto(dto, storage_client, bucket_name))
+
+	return flashcards_with_urls
 
 
 def add_signed_urls_to_dto(dto: FlashcardReadSchema, storage_client, bucket_name: str) -> FlashcardReadSchema:
@@ -197,38 +223,31 @@ async def create_flashcard(payload: FlashcardCreateSchema, session: AsyncSession
 
 	# nested discussion
 	if payload.discussion:
-		a = AudioFile(filename=payload.discussion.audio.filename, timing_filename=payload.discussion.audio.timing_filename)
-		session.add(a)
-		await session.flush()
-		audio_id = a.id
-
 		disc = FlashcardDiscussion(
 			flashcard_id=flashcard.id,
 			ssml_text=payload.discussion.ssml_text,
 			text=payload.discussion.text,
-			audio_id=audio_id,
 		)
 		session.add(disc)
+		await session.flush()
+
+		audio = DiscussionAudio(filename=payload.discussion.audio.filename, timing_filename=payload.discussion.audio.timing_filename, discussion_id=disc.flashcard_id)
+		session.add(audio)
 
 	if payload.final_card:
-
-		qa = AudioFile(filename=payload.final_card.question_audio.filename, timing_filename=payload.final_card.question_audio.timing_filename)
-		session.add(qa)
-		await session.flush()
-		q_audio_id = qa.id
-
-		aa = AudioFile(filename=payload.final_card.answer_audio.filename, timing_filename=payload.final_card.answer_audio.timing_filename)
-		session.add(aa)
-		await session.flush()
-		a_audio_id = aa.id
 		fc = FlashcardFinalCard(
 			flashcard_id=flashcard.id,
 			front=payload.final_card.front,
 			back=payload.final_card.back,
-			question_audio_id=q_audio_id,
-			answer_audio_id=a_audio_id,
 		)
 		session.add(fc)
+		await session.flush()
+
+		qa = FinalCardQuestionAudio(filename=payload.final_card.question_audio.filename, timing_filename=payload.final_card.question_audio.timing_filename, final_card_id=fc.flashcard_id)
+		session.add(qa)
+
+		aa = FinalCardAnswerAudio(filename=payload.final_card.answer_audio.filename, timing_filename=payload.final_card.answer_audio.timing_filename, final_card_id=fc.flashcard_id)
+		session.add(aa)
 
 	if payload.fsrs:
 		fs = FlashcardFSRS(flashcard_id=flashcard.id, due=payload.fsrs.due.replace(tzinfo=None), stability=payload.fsrs.stability, difficulty=payload.fsrs.difficulty, elapsed_days=payload.fsrs.elapsed_days, scheduled_days=payload.fsrs.scheduled_days, reps=payload.fsrs.reps, lapses=payload.fsrs.lapses, state=payload.fsrs.state, learning_steps=payload.fsrs.learning_steps)
@@ -251,9 +270,27 @@ async def create_flashcard(payload: FlashcardCreateSchema, session: AsyncSession
 
 @router.delete("/{flashcard_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_flashcard(flashcard_id: str, session: AsyncSession = Depends(get_db)):
-	item = await session.get(Flashcard, flashcard_id)
+	q = select(Flashcard).where(Flashcard.id == flashcard_id).options(
+		joinedload(Flashcard.discussion).joinedload(FlashcardDiscussion.audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.question_audio),
+		joinedload(Flashcard.final_card).joinedload(FlashcardFinalCard.answer_audio),
+		joinedload(Flashcard.fsrs),
+	)
+	res = await session.execute(q)
+	item = res.scalars().first()
 	if not item:
 		raise HTTPException(status_code=404, detail="Flashcard not found")
+
+	
+	#delete the bucket files
+	gcp_config.delete_blob("ttsinfo", item.discussion.audio.filename)
+	gcp_config.delete_blob("ttsinfo", item.discussion.audio.timing_filename)
+	gcp_config.delete_blob("ttsinfo", item.final_card.question_audio.filename)
+	gcp_config.delete_blob("ttsinfo", item.final_card.question_audio.timing_filename)
+	gcp_config.delete_blob("ttsinfo", item.final_card.answer_audio.filename)
+	gcp_config.delete_blob("ttsinfo", item.final_card.answer_audio.timing_filename)
+
+	#delete the db entries
 	await session.delete(item)
 	await session.commit()
 	return None

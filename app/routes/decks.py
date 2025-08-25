@@ -1,29 +1,45 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import FlashcardDeck, get_db, User
+from app.database import FlashcardDeck, Flashcard, get_db, User
 from app.auth import current_active_user
 from app.pydantic.deck import DeckCreate, DeckRead, DeckUpdate
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
 
+def _deck_to_dto(deck: FlashcardDeck, card_count: int) -> DeckRead:
+    """Build a DeckRead DTO from a SQLAlchemy `FlashcardDeck` plus a card count.
+
+    Keeps DTO construction in one place so both endpoints behave the same.
+    """
+    return DeckRead.model_validate({
+        **deck.__dict__,
+        "card_count": card_count,
+    })
+
+
 @router.get("/", response_model=List[DeckRead])
-async def list_decks(skip: int = 0, limit: int = 100, session: AsyncSession = Depends(get_db)):
-    q = select(FlashcardDeck).offset(skip).limit(limit)
+async def list_decks(skip: int = 0, limit: int = 100, session: AsyncSession = Depends(get_db), current_user: User = Depends(current_active_user)):
+    q = select(FlashcardDeck, func.count(FlashcardDeck.cards)).where(FlashcardDeck.owner_id == current_user.id).offset(skip).limit(limit).join(FlashcardDeck.cards, isouter=True).group_by(FlashcardDeck.id)
     res = await session.execute(q)
-    items = res.scalars().all()
-    return items
+    items = res.all()
+    items_dtos = [_deck_to_dto(deck, card_count) for deck, card_count in items]
+    return items_dtos
 
 
 @router.get("/{deck_id}", response_model=DeckRead)
 async def get_deck(deck_id: str, session: AsyncSession = Depends(get_db)):
-    deck = await session.get(FlashcardDeck, deck_id)
-    if not deck:
+    q = select(FlashcardDeck, func.count(FlashcardDeck.cards)).where(FlashcardDeck.id == deck_id).join(FlashcardDeck.cards, isouter=True).group_by(FlashcardDeck.id)
+    res = await session.execute(q)
+
+    if not res:
         raise HTTPException(status_code=404, detail="Deck not found")
-    return deck
+
+    deck, card_count = res.one()
+    return _deck_to_dto(deck, card_count)
 
 
 @router.post("/", response_model=DeckRead, status_code=status.HTTP_201_CREATED)
@@ -36,7 +52,7 @@ async def create_deck(
     session.add(deck)
     await session.commit()
     await session.refresh(deck)
-    return deck
+    return _deck_to_dto(deck, 0)
 
 
 @router.put("/{deck_id}", response_model=DeckRead)

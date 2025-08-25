@@ -61,6 +61,24 @@ class GCPConfig:
             return {"status": "connected", "project": project}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    def delete_blob(self, bucket_name: str, blob_name: str) -> dict:
+        """
+        Delete a blob from a Google Cloud Storage bucket.
+
+        Returns a dict with status information. Example:
+        {"status": "deleted", "bucket": <bucket_name>, "blob": <blob_name>}
+        or
+        {"status": "error", "message": <error message>}
+        """
+        try:
+            client = self.get_storage_client()
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(blob_name)
+            blob.delete()
+            return {"status": "deleted", "bucket": bucket_name, "blob": blob_name}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
     
     def get_audio_directory(self) -> str:
         """Get the audio directory path for both local and Docker environments"""

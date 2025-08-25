@@ -106,7 +106,6 @@ class FlashcardDeck(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[DateTime] = mapped_column(DateTime, default=datetime.now, nullable=False)
-    # Optional owner reference to users table
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     owner: Mapped["User"] = relationship("User", back_populates="decks")
     # Relationship to Flashcard: one deck -> many flashcards
@@ -123,8 +122,8 @@ class Flashcard(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4)
     created_at: Mapped[Optional[DateTime]] = mapped_column(DateTime, default=datetime.now, nullable=True)
-    # A flashcard must belong to a deck; require deck_id on creation
-    deck_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcard_decks.id"), nullable=False)
+    # A flashcard must belong to a deck; require deck_id on creation, also index for faster count
+    deck_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcard_decks.id"), nullable=False, index=True)
     # Relationship back to the deck that contains this card
     deck: Mapped["FlashcardDeck"] = relationship("FlashcardDeck", back_populates="cards")
     # One-to-one related objects
@@ -152,13 +151,19 @@ class FlashcardDiscussion(Base):
     }
     """
     __tablename__ = "flashcard_discussions"
-
     flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id", ondelete="CASCADE"), primary_key=True)
-    ssml_text: Mapped[str] = mapped_column(Text, nullable=True)
+    ssml_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     text: Mapped[str] = mapped_column(Text)
-    # Link to shared audio file instead of storing JSON with filename/timing
-    audio_id: Mapped[int] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
-    audio: Mapped["AudioFile"] = relationship("AudioFile", foreign_keys=[audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
+
+    # audio is owned by DiscussionAudio (FK lives on DiscussionAudio.discussion_id)
+    audio: Mapped["DiscussionAudio"] = relationship(
+        "DiscussionAudio",
+        back_populates="discussion",
+        uselist=False,
+        cascade="all, delete-orphan",
+        single_parent=True,
+        passive_deletes=True,
+    )
 
     flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="discussion")
 
@@ -170,12 +175,25 @@ class FlashcardFinalCard(Base):
     flashcard_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcards.id", ondelete="CASCADE"), primary_key=True)
     front: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     back: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    # Replace JSON audio blobs with FKs to shared AudioFile table
-    question_audio_id: Mapped[int] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
-    answer_audio_id: Mapped[int] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
+    # Audio ownership is moved to dedicated tables so each audio row contains
+    # the FK to this final-card (and will be removed when this final-card is removed).
+    question_audio: Mapped["FinalCardQuestionAudio"] = relationship(
+        "FinalCardQuestionAudio",
+        back_populates="final_card",
+        uselist=False,
+        cascade="all, delete-orphan",
+        single_parent=True,
+        passive_deletes=True,
+    )
 
-    question_audio: Mapped["AudioFile"] = relationship("AudioFile", foreign_keys=[question_audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
-    answer_audio: Mapped["AudioFile"] = relationship("AudioFile", foreign_keys=[answer_audio_id], cascade="all, delete-orphan", single_parent=True, passive_deletes=True)
+    answer_audio: Mapped["FinalCardAnswerAudio"] = relationship(
+        "FinalCardAnswerAudio",
+        back_populates="final_card",
+        uselist=False,
+        cascade="all, delete-orphan",
+        single_parent=True,
+        passive_deletes=True,
+    )
 
     flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="final_card")
 
@@ -198,29 +216,57 @@ class FlashcardFSRS(Base):
     # Relationship back to Flashcard (one-to-one) to match Flashcard.fsrs back_populates
     flashcard: Mapped["Flashcard"] = relationship("Flashcard", back_populates="fsrs")
 
+class DiscussionAudio(Base):
+    """Audio file owned by a FlashcardDiscussion (one-to-one)."""
+    __tablename__ = "discussion_audios"
 
-class StudySession(Base):
-    """Store study sessions keyed by id; reviews stored as JSON list/object."""
-    __tablename__ = "study_sessions"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, index=True)
-    deck_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("flashcard_decks.id"), nullable=True)
-    start_time: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
-    cards_studied: Mapped[int] = mapped_column(Integer, default=0)
-    question_audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
-    answer_audio_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("audio_files.id"), nullable=True)
-
-
-    question_audio: Mapped[Optional["AudioFile"]] = relationship("AudioFile", foreign_keys=[question_audio_id])
-    answer_audio: Mapped[Optional["AudioFile"]] = relationship("AudioFile", foreign_keys=[answer_audio_id])
-
-class AudioFile(Base):
-    """Table to store audio filenames and their timing file names. Shared by multiple models."""
-    __tablename__ = "audio_files"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    discussion_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("flashcard_discussions.flashcard_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     timing_filename: Mapped[str] = mapped_column(String(255), nullable=True)
+
+    discussion: Mapped["FlashcardDiscussion"] = relationship(
+        "FlashcardDiscussion", back_populates="audio", foreign_keys=[discussion_id]
+    )
+
+
+class FinalCardQuestionAudio(Base):
+    """Question audio owned by a FlashcardFinalCard (one-to-one)."""
+    __tablename__ = "final_card_question_audios"
+
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    timing_filename: Mapped[str] = mapped_column(String(255), nullable=True)
+
+    final_card_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("flashcard_final_cards.flashcard_id", ondelete="CASCADE"),
+        primary_key=True
+    )
+
+    final_card: Mapped["FlashcardFinalCard"] = relationship(
+        "FlashcardFinalCard", back_populates="question_audio", foreign_keys=[final_card_id]
+    )
+
+
+class FinalCardAnswerAudio(Base):
+    """Answer audio owned by a FlashcardFinalCard (one-to-one)."""
+    __tablename__ = "final_card_answer_audios"
+    
+    final_card_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("flashcard_final_cards.flashcard_id", ondelete="CASCADE"),
+        primary_key=True
+    )
+
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    timing_filename: Mapped[str] = mapped_column(String(255), nullable=True)
+
+    final_card: Mapped["FlashcardFinalCard"] = relationship(
+        "FlashcardFinalCard", back_populates="answer_audio", foreign_keys=[final_card_id]
+    )
 
 
 class RefreshToken(Base):

@@ -1,25 +1,23 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 from datetime import datetime, date
 from uuid import UUID
 
-# Deck schemas
-class DeckBase(BaseModel):
+from app.database import FlashcardDeck
+
+
+class DeckCreate(BaseModel):
     name: str
-
-
-class DeckCreate(DeckBase):
-    pass
-
 
 class DeckUpdate(BaseModel):
     name: Optional[str] = None
 
 
-class DeckRead(DeckBase):
+class DeckRead(BaseModel):
     id: UUID
-    card_count: Optional[int] = 0
-    created_at: Optional[datetime] = None
+    name: str
+    card_count: int
+    created_at: datetime
 
     class Config:
         from_attributes = True

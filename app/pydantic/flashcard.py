@@ -6,7 +6,7 @@ from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel
 from app.database import Flashcard, FlashcardDiscussion, FlashcardFSRS, FlashcardFinalCard
-from app.pydantic.audio import AudioFileCreateSchema, AudioFileReadSchema, AudioFileUpdateSchema, create_audio_file_orm_from_dto, update_audio_file_orm_from_dto
+from app.pydantic.audio import AudioFileCreateSchema, AudioFileReadSchema, AudioFileUpdateSchema, create_discussion_audio_orm_from_dto, update_discussion_audio_orm_from_dto, update_final_card_answer_audio_orm_from_dto, update_final_card_question_audio_orm_from_dto
 
 
 class FlashcardDiscussionCreateSchema(BaseModel):
@@ -129,13 +129,13 @@ def create_flashcard_discussion_orm_from_dto(dto: FlashcardDiscussionCreateSchem
     return FlashcardDiscussion(
         ssml_text=dto.ssml_text,
         text=dto.text,
-        audio=create_audio_file_orm_from_dto(dto.audio),
+        audio=create_discussion_audio_orm_from_dto(dto.audio),
     )
 
 def update_flashcard_discussion_orm_from_dto(orm: FlashcardDiscussion, dto: FlashcardDiscussionUpdateSchema) -> FlashcardDiscussion:
     orm.ssml_text = dto.ssml_text if dto.ssml_text is not None else orm.ssml_text
     orm.text = dto.text if dto.text is not None else orm.text
-    orm.audio = update_audio_file_orm_from_dto(orm.audio, dto.audio) if dto.audio is not None else orm.audio
+    orm.audio = update_discussion_audio_orm_from_dto(orm.audio, dto.audio) if dto.audio is not None else orm.audio
     return orm
 
 def create_flashcard_fsrs_orm_from_dto(dto: FlashcardFSRSCreateSchema) -> FlashcardFSRS:
@@ -166,15 +166,15 @@ def create_flashcard_final_card_orm_from_dto(dto: FlashcardFinalCardCreateSchema
     return FlashcardFinalCard(
         front=dto.front,
         back=dto.back,
-        question_audio=create_audio_file_orm_from_dto(dto.question_audio),
-        answer_audio=create_audio_file_orm_from_dto(dto.answer_audio),
+        question_audio=create_discussion_audio_orm_from_dto(dto.question_audio),
+        answer_audio=create_discussion_audio_orm_from_dto(dto.answer_audio),
     )
 
 def update_flashcard_final_card_orm_from_dto(orm: FlashcardFinalCard, dto: FlashcardFinalCardUpdateSchema) -> FlashcardFinalCard:
     orm.front = dto.front if dto.front is not None else orm.front
     orm.back = dto.back if dto.back is not None else orm.back
-    orm.question_audio = update_audio_file_orm_from_dto(orm.question_audio, dto.question_audio) if dto.question_audio is not None else orm.question_audio
-    orm.answer_audio = update_audio_file_orm_from_dto(orm.answer_audio, dto.answer_audio) if dto.answer_audio is not None else orm.answer_audio
+    orm.question_audio = update_final_card_question_audio_orm_from_dto(orm.question_audio, dto.question_audio) if dto.question_audio is not None else orm.question_audio
+    orm.answer_audio = update_final_card_answer_audio_orm_from_dto(orm.answer_audio, dto.answer_audio) if dto.answer_audio is not None else orm.answer_audio
     return orm
 
 def create_flashcard_orm_from_dto(dto: FlashcardCreateSchema) -> Flashcard:
